@@ -1,0 +1,13 @@
+/* Propagatie Watch — Setup wizard */
+.setup-screen{max-width:480px;margin:0 auto;padding:var(--space-6) var(--space-4)}
+.setup-progress{display:flex;gap:var(--space-2);margin-bottom:var(--space-6)}
+.setup-progress__dot{height:4px;flex:1;border-radius:2px;background:var(--color-border)}
+.setup-progress__dot--done  {background:var(--color-good)}
+.setup-progress__dot--active{background:var(--color-warn)}
+.setup-step-label{font-size:var(--text-xs);color:var(--color-text-muted);margin-bottom:var(--space-1)}
+.setup-title{font-size:var(--text-xl);font-weight:var(--weight-bold);margin-bottom:var(--space-2);line-height:var(--leading-tight)}
+.setup-subtitle{font-size:var(--text-sm);color:var(--color-text-secondary);margin-bottom:var(--space-6);line-height:var(--leading-normal)}
+.setup-hint{font-size:var(--text-xs);color:var(--color-good);font-family:var(--font-mono);margin-top:var(--space-2);min-height:16px}
+.setup-actions{margin-top:var(--space-6);display:flex;flex-direction:column;gap:var(--space-3)}
+.setup-skip{background:none;border:none;color:var(--color-text-muted);font-size:var(--text-sm);cursor:pointer;padding:var(--space-2);text-align:center}
+.setup-skip:hover{color:var(--color-text-secondary)}

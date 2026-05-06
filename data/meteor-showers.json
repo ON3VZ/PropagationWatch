@@ -1,0 +1,8 @@
+[
+  {"name":"Quadrantids","code":"QUA","peak":"2026-01-03","start":"2025-12-28","end":"2026-01-12","zhr":120,"velocity_km_s":41},
+  {"name":"Eta Aquariids","code":"ETA","peak":"2026-05-06","start":"2026-04-19","end":"2026-05-28","zhr":50,"velocity_km_s":66},
+  {"name":"Perseids","code":"PER","peak":"2026-08-12","start":"2026-07-17","end":"2026-08-24","zhr":100,"velocity_km_s":59},
+  {"name":"Orionids","code":"ORI","peak":"2026-10-21","start":"2026-10-02","end":"2026-11-07","zhr":20,"velocity_km_s":66},
+  {"name":"Leonids","code":"LEO","peak":"2026-11-17","start":"2026-11-06","end":"2026-11-30","zhr":15,"velocity_km_s":71},
+  {"name":"Geminids","code":"GEM","peak":"2026-12-14","start":"2026-12-04","end":"2026-12-17","zhr":150,"velocity_km_s":35}
+]

@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="nl" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1A1F2E">
+  <meta name="description" content="Propagation planner for radio amateurs — ON3VZ/JO20ev">
+  <title>Propagatie Watch</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="assets/icons/favicon.ico">
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+  <!-- CSS -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/reset.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/timeline.css">
+  <link rel="stylesheet" href="css/setup.css">
+  <!-- SunCalc as global (non-module) -->
+  <script src="lib/suncalc.js"></script>
+</head>
+<body>
+
+<!-- ── Navigation ── -->
+<nav id="app-nav" role="navigation" aria-label="Main navigation">
+  <div class="nav-logo">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <circle cx="9" cy="9" r="3" fill="#1D9E75"/>
+      <circle cx="9" cy="9" r="6" stroke="#1D9E75" stroke-width="1" fill="none" opacity=".4"/>
+      <circle cx="9" cy="9" r="8.5" stroke="#1D9E75" stroke-width=".5" fill="none" opacity=".2"/>
+      <line x1="9" y1="1" x2="9" y2="5" stroke="#1D9E75" stroke-width="2"/>
+    </svg>
+    Propagatie Watch
+  </div>
+  <div class="nav-links">
+    <button class="nav-link active" data-nav="home" aria-current="page">Overview</button>
+    <button class="nav-link" data-nav="setup-watch">+ Watch</button>
+    <button class="nav-link" data-nav="profile">⚡ Profile</button>
+  </div>
+</nav>
+
+<!-- ── Toast container ── -->
+<div id="toast-container" role="status" aria-live="polite"></div>
+
+<!-- ── App root ── -->
+<main id="app-root">
+
+  <!-- ── HOME ── -->
+  <div class="screen active" id="screen-home">
+    <!-- Storm banner -->
+    <div id="storm-banner" role="alert">
+      <div>
+        <div class="storm-title"></div>
+        <div class="storm-sub"></div>
+      </div>
+      <span style="color:var(--color-bad-text)">→</span>
+    </div>
+
+    <!-- Status bar -->
+    <div id="status-bar" role="status">
+      <span>Kp <span id="sb-kp" class="status-good">—</span></span>
+      <span class="sep">·</span>
+      <span>SFI <span id="sb-sfi">—</span></span>
+      <span class="sep">·</span>
+      <span id="sb-age" class="stale-warn"></span>
+      <button id="btn-refresh" onclick="window.PW && fetchNOAA && fetchNOAA().then(()=>renderHome())" aria-label="Refresh data">↺</button>
+    </div>
+
+    <!-- Timeline -->
+    <div class="timeline-card">
+      <div class="timeline-header">
+        <span>24h timeline</span>
+        <span id="tl-now" class="mono"></span>
+      </div>
+      <div class="timeline-scroll">
+        <svg id="timeline-svg" class="timeline-svg" height="110"></svg>
+      </div>
+      <div class="timeline-legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--color-good)"></div> Good</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--color-warn)"></div> Waiting</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--color-bad)"></div> Poor</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--color-greyline)"></div> Greyline</div>
+      </div>
+    </div>
+
+    <!-- Watches -->
+    <div class="section-header">
+      <h2 class="section-title">Watches</h2>
+    </div>
+    <div id="watches-list"></div>
+
+    <!-- FAB -->
+    <div class="fab-row">
+      <button class="btn btn--secondary" onclick="showQuickCheck()">Quick check</button>
+      <button class="btn btn--primary" onclick="showScreen_('setup-watch');renderSetupWatch()">+ Watch</button>
+    </div>
+  </div>
+
+  <!-- ── WATCH DETAIL ── -->
+  <div class="screen" id="screen-detail">
+    <div class="detail-header">
+      <button class="detail-back" onclick="showScreen_('home')">← Back</button>
+      <h2 id="detail-title" style="font-size:var(--text-md);font-weight:var(--weight-bold)"></h2>
+    </div>
+
+    <div class="big-reliability" id="detail-pct" data-status="good">—%</div>
+    <div class="reliability-context" id="detail-context"></div>
+
+    <div id="detail-compare" style="background:var(--color-good-bg);border:1px solid var(--color-good);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);margin-top:var(--space-3);font-size:var(--text-xs);color:var(--color-good-text);display:none"></div>
+
+    <div class="card" style="margin-top:var(--space-4)">
+      <table class="info-table">
+        <tr><td class="label">SFI</td><td class="value" id="detail-sfi">—</td></tr>
+        <tr><td class="label">Kp</td><td class="value" id="detail-kp">—</td></tr>
+        <tr><td class="label">TX Power</td><td class="value" id="detail-pwr">—</td></tr>
+        <tr><td class="label">Distance</td><td class="value" id="detail-dist">—</td></tr>
+        <tr><td class="label">Bearing (short)</td><td class="value" id="detail-az">—</td></tr>
+        <tr><td class="label">Grid</td><td class="value" id="detail-grid">—</td></tr>
+      </table>
+    </div>
+
+    <div style="display:flex;gap:var(--space-2);margin-top:var(--space-4)">
+      <button class="btn btn--primary" id="btn-set-alarm" style="flex:1">⏰ Set alarm</button>
+      <button class="btn btn--secondary" id="btn-export-ics" style="flex:1">📅 Export .ics</button>
+    </div>
+  </div>
+
+  <!-- ── SETUP: LOCATION ── -->
+  <div class="screen" id="screen-setup">
+    <div class="setup-container">
+      <div class="setup-progress">
+        <div class="setup-progress__dot setup-progress__dot--active"></div>
+        <div class="setup-progress__dot"></div>
+        <div class="setup-progress__dot"></div>
+        <div class="setup-progress__dot"></div>
+      </div>
+      <p class="setup-step">Step <span id="setup-step-num">1</span> of 4</p>
+      <h2 class="setup-title">Your location</h2>
+      <p class="setup-sub">Enter your callsign or grid square. Used for all propagation calculations.</p>
+      <div class="field">
+        <label class="field__label" for="setup-loc-input">Callsign or grid square</label>
+        <input class="field__input" id="setup-loc-input" placeholder="e.g. ON3VZ or JO20ev"
+               autocorrect="off" autocapitalize="characters" spellcheck="false">
+        <span class="field__hint--accent" id="setup-loc-hint"></span>
+      </div>
+      <div class="setup-actions">
+        <button class="btn btn--primary" onclick="PW.saveSetupLocation()">Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SETUP: + WATCH ── -->
+  <div class="screen" id="screen-setup-watch">
+    <div class="setup-container">
+      <div class="setup-progress">
+        <div class="setup-progress__dot setup-progress__dot--done"></div>
+        <div class="setup-progress__dot setup-progress__dot--active"></div>
+        <div class="setup-progress__dot"></div>
+        <div class="setup-progress__dot"></div>
+      </div>
+      <h2 class="setup-title">Target station</h2>
+      <p class="setup-sub">Choose a popular destination or enter a callsign / prefix.</p>
+
+      <div class="sugg-grid">
+        <button class="sugg-btn" onclick="PW.fillDX('W','North America','FN41','5890 km',290)">
+          <div class="sugg-btn__prefix">W / K</div>
+          <div class="sugg-btn__name">North America</div>
+          <div class="sugg-btn__dist">5.890 km · 290°</div>
+        </button>
+        <button class="sugg-btn" onclick="PW.fillDX('SM','Scandinavia','JP90','1540 km',12)">
+          <div class="sugg-btn__prefix">SM / LA / OH</div>
+          <div class="sugg-btn__name">Scandinavia</div>
+          <div class="sugg-btn__dist">1.540 km · 12°</div>
+        </button>
+        <button class="sugg-btn" onclick="PW.fillDX('EA','South Europe','IM99','1870 km',208)">
+          <div class="sugg-btn__prefix">EA / I / SV</div>
+          <div class="sugg-btn__name">South Europe</div>
+          <div class="sugg-btn__dist">1.870 km · 208°</div>
+        </button>
+        <button class="sugg-btn" onclick="PW.fillDX('JA','Japan','PM96','9220 km',47)">
+          <div class="sugg-btn__prefix">JA</div>
+          <div class="sugg-btn__name">Japan</div>
+          <div class="sugg-btn__dist">9.220 km · 47°</div>
+        </button>
+        <button class="sugg-btn" onclick="PW.fillDX('VK','Australia','QF22','16800 km',110)">
+          <div class="sugg-btn__prefix">VK</div>
+          <div class="sugg-btn__name">Australia</div>
+          <div class="sugg-btn__dist">16.800 km · 110°</div>
+        </button>
+        <button class="sugg-btn" onclick="PW.fillDX('VP8','Falkland','GD17','12847 km',222)">
+          <div class="sugg-btn__prefix">VP8</div>
+          <div class="sugg-btn__name">Falkland</div>
+          <div class="sugg-btn__dist">12.847 km · 222°</div>
+        </button>
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="setup-dx-input">Or type a prefix / callsign</label>
+        <input class="field__input" id="setup-dx-input" placeholder="e.g. VP8 or JA1ZZZ"
+               oninput="PW.dxHint(this.value)"
+               autocorrect="off" autocapitalize="characters" spellcheck="false">
+        <span class="field__hint--accent" id="setup-dx-hint"></span>
+      </div>
+
+      <div class="grid-2" style="margin-top:var(--space-4)">
+        <div class="field">
+          <label class="field__label" for="setup-band">Band</label>
+          <select class="field__select" id="setup-band">
+            <option>40m</option><option>20m</option><option>17m</option>
+            <option>15m</option><option>10m</option><option>80m</option><option>6m</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field__label" for="setup-mode">Mode</label>
+          <select class="field__select" id="setup-mode">
+            <option>FT8</option><option>CW</option><option>SSB</option>
+            <option>FT4</option><option>MSK144</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top:var(--space-4)">
+        <label class="field__label">Alert threshold</label>
+        <div class="slider-row">
+          <input type="range" min="10" max="90" step="5" value="60" id="setup-threshold"
+                 oninput="document.getElementById('thr-val').textContent=this.value+'%'">
+          <span class="slider-val" id="thr-val">60%</span>
+        </div>
+      </div>
+
+      <div class="setup-actions">
+        <button class="btn btn--primary" onclick="PW.saveSetupWatch()">Create watch</button>
+        <button class="setup-skip" onclick="PW.skipSetupDX()">Skip — configure later</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PROFILE ── -->
+  <div class="screen" id="screen-profile">
+    <div style="padding:var(--space-4)">
+      <h2 class="section-title" style="margin-bottom:var(--space-5)">Power &amp; Licence</h2>
+
+      <div class="card" style="margin-bottom:var(--space-4)">
+        <p style="font-weight:var(--weight-bold);margin-bottom:var(--space-2)">Licence class</p>
+        <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin-bottom:var(--space-3)">Sets the slider range. TX power is used in reliability calculations.</p>
+        <div class="lic-grid">
+          <button class="lic-btn" data-class="C" onclick="PW.setLicClass('C')">
+            <div class="lic-btn__name">Class C</div>
+            <div class="lic-btn__max">max 25W</div>
+          </button>
+          <button class="lic-btn active" data-class="B" onclick="PW.setLicClass('B')">
+            <div class="lic-btn__name">Class B</div>
+            <div class="lic-btn__max">max 100W</div>
+          </button>
+          <button class="lic-btn" data-class="A" onclick="PW.setLicClass('A')">
+            <div class="lic-btn__name">Class A</div>
+            <div class="lic-btn__max">max 1500W</div>
+          </button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:var(--space-4)">
+        <p style="font-weight:var(--weight-bold);margin-bottom:var(--space-2)">Default TX power</p>
+        <div class="slider-row" style="margin:var(--space-3) 0">
+          <input type="range" id="pwr-slider" min="1" max="100" step="1" value="75"
+                 oninput="PW.setPower(this.value)">
+          <span class="slider-val" id="pwr-val">75W</span>
+        </div>
+        <p id="pwr-note" style="font-size:var(--text-xs);color:var(--color-text-secondary);line-height:var(--leading-normal)"></p>
+      </div>
+
+      <div class="card" style="margin-bottom:var(--space-5)">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <p style="font-weight:var(--weight-bold)">QRP mode</p>
+            <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin-top:2px">For POTA / SOTA — forces 5W</p>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" class="toggle__input" id="qrp-toggle" onchange="PW.setQRP(this.checked)">
+            <span class="toggle__track"></span>
+          </label>
+        </div>
+      </div>
+
+      <button class="btn btn--primary" style="width:100%" onclick="PW.saveProfile()">Save</button>
+    </div>
+  </div>
+
+  <!-- ── STORMSHADOW ── -->
+  <div class="screen" id="screen-storm">
+    <div style="padding:var(--space-4)">
+      <div class="detail-header">
+        <button class="detail-back" onclick="showScreen_('home')">← Back</button>
+        <h2 style="font-size:var(--text-md);font-weight:var(--weight-bold)">Stormshadow</h2>
+      </div>
+      <div style="background:var(--color-bad-bg);border:1px solid var(--color-bad);border-radius:var(--radius-md);padding:var(--space-4);margin-bottom:var(--space-4)">
+        <p style="font-size:var(--text-xs);color:var(--color-bad-text);margin-bottom:var(--space-2)">Current Kp</p>
+        <p style="font-family:var(--font-mono);font-size:var(--text-3xl);font-weight:var(--weight-bold);color:var(--color-bad-text)" id="storm-kp">—</p>
+      </div>
+      <h3 style="font-size:var(--text-md);font-weight:var(--weight-bold);margin-bottom:var(--space-3)">Band recovery forecast</h3>
+      <div class="recovery-list" id="storm-recovery">
+        <p style="color:var(--color-text-muted);font-size:var(--text-sm)">Load storm data from home screen.</p>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ── Module JS ── -->
+<script type="module" src="js/app.js"></script>
+<script>
+  // Global helper for non-module onclick handlers
+  function showScreen_(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('screen-' + id)?.classList.add('active');
+  }
+  function showQuickCheck() {
+    showScreen_('setup-watch');
+  }
+  // Update timeline "now" indicator
+  setInterval(() => {
+    const el = document.getElementById('tl-now');
+    if (el) el.textContent = new Date().toISOString().slice(11,16) + ' UTC';
+  }, 1000);
+</script>
+
+</body>
+</html>

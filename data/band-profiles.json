@@ -1,0 +1,12 @@
+[
+  {"band":"160m","freq_mhz":1.85,"greyline_relevance":"very_high","min_sfi_for_dx":0,"classC":false,"kp_sensitivity":"very_high"},
+  {"band":"80m","freq_mhz":3.6,"greyline_relevance":"high","min_sfi_for_dx":0,"classC":true,"kp_sensitivity":"high"},
+  {"band":"40m","freq_mhz":7.1,"greyline_relevance":"high","min_sfi_for_dx":0,"classC":true,"kp_sensitivity":"medium_high"},
+  {"band":"30m","freq_mhz":10.1,"greyline_relevance":"medium","min_sfi_for_dx":70,"classC":true,"kp_sensitivity":"medium"},
+  {"band":"20m","freq_mhz":14.1,"greyline_relevance":"low","min_sfi_for_dx":80,"classC":true,"kp_sensitivity":"medium"},
+  {"band":"17m","freq_mhz":18.1,"greyline_relevance":"low","min_sfi_for_dx":90,"classC":true,"kp_sensitivity":"medium_low"},
+  {"band":"15m","freq_mhz":21.2,"greyline_relevance":"low","min_sfi_for_dx":100,"classC":true,"kp_sensitivity":"low"},
+  {"band":"12m","freq_mhz":24.9,"greyline_relevance":"none","min_sfi_for_dx":120,"classC":true,"kp_sensitivity":"low"},
+  {"band":"10m","freq_mhz":28.5,"greyline_relevance":"none","min_sfi_for_dx":140,"classC":true,"kp_sensitivity":"low"},
+  {"band":"6m","freq_mhz":50.1,"greyline_relevance":"none","min_sfi_for_dx":0,"classC":true,"kp_sensitivity":"low_es"}
+]

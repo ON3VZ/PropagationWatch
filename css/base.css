@@ -1,0 +1,24 @@
+/* Propagatie Watch — Base */
+html{font-size:16px;scroll-behavior:smooth}
+body{
+  font-family:var(--font-sans);
+  font-size:var(--text-base);
+  font-weight:var(--weight-normal);
+  line-height:var(--leading-normal);
+  color:var(--color-text-primary);
+  background-color:var(--color-bg-primary);
+  min-height:100dvh;
+}
+.mono,time,.frequency,.grid-sq,.utc-time,.kp-val,.sfi-val,.pct-val{
+  font-family:var(--font-mono);font-size:.95em;letter-spacing:.02em;
+}
+:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px;border-radius:var(--radius-sm)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.status-good  {color:var(--color-good-text)}
+.status-warn  {color:var(--color-warn-text)}
+.status-bad   {color:var(--color-bad-text)}
+.status-muted {color:var(--color-text-muted)}
+[data-status="good"]    {--status-color:var(--color-good)}
+[data-status="warn"]    {--status-color:var(--color-warn)}
+[data-status="bad"]     {--status-color:var(--color-bad)}
+[data-status="unknown"] {--status-color:var(--color-neutral)}
