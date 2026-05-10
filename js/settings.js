@@ -10,7 +10,6 @@ import { fetchNOAA, testAllEndpoints, apiStatus,
          ENDPOINTS, NOAA_CONFIG, noaaStaleness }  from './noaa.js';
 import { showToast }                              from './ui.js';
 import { ageMinutes, gridToLatLon }               from './utils.js';
-import { evaluateAllWatches }                     from './watches.js';
 import { setLang }                                from './i18n.js';
 
 /* Expose globally for nav onclick */
@@ -235,8 +234,7 @@ window._pwSelectLicClass = function(cls) {
   _updateSliderLabels(cls);
 
   persistUser();
-  evaluateAllWatches();
-  publish('watches', state.watches);
+  if (window._pwEvaluate) { window._pwEvaluate(); }
   showToast(`Class ${cls} — ${max}W`, 'success');
 };
 
@@ -251,8 +249,7 @@ window._pwUpdatePower = function(v) {
   }
   _updatePowerDisplay(v);
   persistUser();
-  evaluateAllWatches();
-  publish('watches', state.watches);
+  if (window._pwEvaluate) { window._pwEvaluate(); }
 };
 
 window._pwToggleQRP = function(on) {
@@ -262,8 +259,7 @@ window._pwToggleQRP = function(on) {
   const sl = document.getElementById('pwr-slider');
   if (sl) { sl.value = state.user.txPowerW; _updatePowerDisplay(state.user.txPowerW); }
   persistUser();
-  evaluateAllWatches();
-  publish('watches', state.watches);
+  if (window._pwEvaluate) { window._pwEvaluate(); }
 };
 
 window._pwToggleTheme = function(light) {
@@ -290,7 +286,7 @@ window._pwSaveLocation = function() {
     state.user.lon  = lon;
     persistUser();
     showToast(`Location saved — ${val} (${lat.toFixed(2)}°N ${lon.toFixed(2)}°E)`, 'success');
-    evaluateAllWatches();
+    if (window._pwEvaluate) window._pwEvaluate();
   } catch {
     showToast('Invalid grid square — use format JO20ev', 'error');
   }

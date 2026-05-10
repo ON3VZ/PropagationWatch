@@ -241,11 +241,19 @@
   <div id="toast-container" role="status" aria-live="polite" aria-atomic="false"></div>
 
   <!-- SunCalc — local copy, no CDN -->
-  <script src="lib/suncalc.js"></script>
+  <script src="lib/suncalc.js?v=5"></script>
 
   <!-- App entry point -->
-  <script type="module" src="js/ui.js"></script>
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=5"></script>
+  <script>
+    // Catch module load errors and show them visibly
+    window.addEventListener('error', function(e) {
+      console.error('Global error:', e.message, e.filename, e.lineno);
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      console.error('Unhandled rejection:', e.reason);
+    });
+  </script>
 
 
 </body>

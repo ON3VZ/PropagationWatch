@@ -8,8 +8,17 @@ import { initSetup, initNewWatch, setDxccData }  from './setup.js';
 import { watchWindowToICS, downloadICS }        from './export.js';
 import { t, setLang }                           from './i18n.js';
 import { showScreen, showToast }                from './ui.js';
-import { initSettings, syncSettingsUI }          from './settings.js';
+import { initSettings }                          from './settings.js';
 import { formatUTC, formatBothTimes, formatLocal, ageMinutes } from './utils.js';
+
+/* ── Global bridges (registered before DOMContentLoaded) ── */
+window._pwEvaluate = function() {
+  // Imported lazily to avoid circular deps at module parse time
+  import('./watches.js').then(m => {
+    m.evaluateAllWatches();
+    import('./state.js').then(s => s.publish('watches', s.state.watches));
+  });
+};
 
 /* ── Boot ── */
 window.addEventListener('DOMContentLoaded', async () => {
@@ -31,9 +40,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Apply theme and language
   document.documentElement.dataset.theme = state.user.theme ?? 'dark';
   setLang(state.user.lang ?? 'en');
-
-  // Init settings screen (safe — settings.js might not be fully loaded yet)
-  initSettings();
 
   // Load static data
   const base = '/PropagationWatch';
