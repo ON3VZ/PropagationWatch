@@ -454,7 +454,7 @@ async function fetchNoaa() {
     for (let i = d.length-1; i >= 0; i--) {
       const row = d[i];
       // Try all known field names for SFI
-      const v = parseFloat(row.flux || row.sfi || row.f10 || row['observed-flux'] || row['solar-flux']);
+      const v = parseFloat(row['f10.7'] || row['observed-flux'] || row.flux || row.sfi || row.f10 || row['solar-flux']);
       if (!isNaN(v) && v > 50 && v < 500) { S.prop.sfi = v; ok = true; break; }
       // Last resort: scan all numeric fields in valid range
       for (const k of Object.keys(row)) {
@@ -670,18 +670,18 @@ function renderHome() {
 
 // ── Watch list ──
 const statusColor = {GOOD:'var(--good)',SOON:'var(--good)',WAIT:'var(--warn)',POOR:'var(--bad)',undefined:'var(--bdr)'};
-const statusLabel = {GOOD:'● GOOD WINDOW',SOON:'◑ OPENING SOON',WAIT:'○ WAITING',POOR:'✕ CLOSED'};
+function statusLabel(s) { return {GOOD:T('good'),SOON:T('soon'),WAIT:T('wait'),POOR:T('poor')}[s]||'—'; }
 
 function renderWatchList() {
   const el = document.getElementById('watch-list');
   if (!el) return;
   if (!S.watches.length) {
-    el.innerHTML = '<div class="empty">No watches yet<br><br><button class="btn btn-pri" style="max-width:200px;margin:0 auto" onclick="goNewWatch()">+ Add watch</button></div>';
+    el.innerHTML = `<div class="empty">${T('noWatches')}<br><br><button class="btn btn-pri" style="max-width:200px;margin:0 auto" onclick="goNewWatch()">${T('addFirst')}</button></div>`;
     return;
   }
   // Warn if location not set
   if (!S.user.lat) {
-    el.innerHTML = '<div class="empty" style="color:var(--warn-tx)">⚠ Location not set<br><small style="color:var(--tx3)">Go to Settings → Location to enter your grid square</small></div>';
+    el.innerHTML = `<div class="empty" style="color:var(--warn-tx)">⚠ ${T('location')}<br><small style="color:var(--tx3)">${T('locationHint')}</small></div>`;
     return;
   }
   const sorted = [...S.watches].sort((a,b) => {
@@ -695,16 +695,16 @@ function watchCard(w) {
   const col = statusColor[w.status] || 'var(--bdr)';
   const pct = Math.round((w.rel||0)*100);
   const pw  = w.pw || S.user.txPowerW || 100;
-  const lbl = statusLabel[w.status] || '— —';
+  const lbl = statusLabel(w.status);
   let sub = '';
   if (w.nextWin) {
     const t = new Date(w.nextWin.time);
-    const r = Math.round(w.nextWin.rel*100);
+    const r = isNaN(w.nextWin.rel) ? '?' : Math.round(w.nextWin.rel*100);
     const u = fmtUTC(t), l = fmtLocal(t);
     const ts = l && l!==u.slice(0,5) ? u+' / '+l : u;
     sub = w.status==='GOOD'
-      ? 'Until ~'+ts
-      : 'Next: <b>'+ts+'</b> · '+r+'%';
+      ? T('until')+ts
+      : T('next')+' <b>'+ts+'</b> · '+r+'%';
   }
   return `<div class="card wcard" style="border-left-color:${col}" onclick="openWatch('${w.id}')">
     <div class="wcard-top">
@@ -741,7 +741,7 @@ function openWatch(id) {
 
   let nwHtml = '';
   if (nw) {
-    const nwPct = Math.round(nw.rel*100);
+    const nwPct = isNaN(nw.rel) ? 0 : Math.round(nw.rel*100);
     const nwCol = nwPct>=60?'var(--good)':nwPct>=30?'var(--warn)':'var(--bad)';
     const nwBg  = nwPct>=60?'var(--good-bg)':nwPct>=30?'var(--warn-bg)':'var(--bad-bg)';
     nwHtml = `<div style="background:${nwBg};border:1px solid ${nwCol};border-radius:8px;padding:14px;margin:12px 0">
@@ -881,16 +881,16 @@ function renderTimeline() {
 
 // ── Setup wizard ──
 const SUGG=[
-  {entity:'W',   name:'North America',   grid:'FN41',lat:42.4,  lon:-71.1, dist:'5,890 km',az:'290°'},
-  {entity:'SM',  name:'Scandinavia',     grid:'JP90',lat:60.2,  lon:18.0,  dist:'1,540 km',az:'12°'},
-  {entity:'EA',  name:'South Europe',    grid:'IM99',lat:40.4,  lon:-3.7,  dist:'1,870 km',az:'208°'},
-  {entity:'JA',  name:'Japan',           grid:'PM96',lat:36.2,  lon:138.3, dist:'9,220 km',az:'47°'},
-  {entity:'VK',  name:'Australia',       grid:'QF22',lat:-33.9, lon:151.2, dist:'16,800 km',az:'110°'},
-  {entity:'ZL',  name:'New Zealand',     grid:'RF70',lat:-36.9, lon:174.8, dist:'18,900 km',az:'120°'},
-  {entity:'CU',  name:'Azores',          grid:'HM67',lat:37.7,  lon:-25.7, dist:'2,500 km',az:'252°'},
-  {entity:'PY',  name:'Brazil',          grid:'GG66',lat:-15.8, lon:-47.9, dist:'9,600 km',az:'236°'},
-  {entity:'VP8', name:'Falkland Islands',grid:'GD17',lat:-51.7, lon:-57.9, dist:'12,847 km',az:'222°'},
-  {entity:'ZS',  name:'South Africa',    grid:'KG33',lat:-25.8, lon:28.2,  dist:'9,100 km',az:'175°'},
+  {entity:'W',   name:'North America',   grid:'FN41',lat:42.4,  lon:-71.1},
+  {entity:'SM',  name:'Scandinavia',     grid:'JP90',lat:60.2,  lon:18.0 },
+  {entity:'EA',  name:'South Europe',    grid:'IM99',lat:40.4,  lon:-3.7 },
+  {entity:'JA',  name:'Japan',           grid:'PM96',lat:36.2,  lon:138.3},
+  {entity:'VK',  name:'Australia',       grid:'QF22',lat:-33.9, lon:151.2},
+  {entity:'ZL',  name:'New Zealand',     grid:'RF70',lat:-36.9, lon:174.8},
+  {entity:'CU',  name:'Azores',          grid:'HM67',lat:37.7,  lon:-25.7},
+  {entity:'PY',  name:'Brazil',          grid:'GG66',lat:-15.8, lon:-47.9},
+  {entity:'VP8', name:'Falkland Islands',grid:'GD17',lat:-51.7, lon:-57.9},
+  {entity:'ZS',  name:'South Africa',    grid:'KG33',lat:-25.8, lon:28.2 },
 ];
 let _selTarget = null, _setupStep = 1;
 
@@ -992,11 +992,14 @@ function renderStep2(el) {
   SUGG.forEach(s => {
     const btn = document.createElement('button');
     btn.className='sugg-btn';
-    btn.innerHTML=`<div class="sugg-pre">${s.entity}</div><div class="sugg-name">${s.name}</div><div class="sugg-dist">${s.dist} · ${s.az}</div>`;
+    const sDist = S.user.lat ? haversine(S.user.lat,S.user.lon,s.lat,s.lon) : null;
+    const sAz   = S.user.lat ? bearing(S.user.lat,S.user.lon,s.lat,s.lon) : null;
+    const sInfo = sDist ? sDist.toLocaleString()+' km · '+sAz+'°' : s.grid;
+    btn.innerHTML=`<div class="sugg-pre">${s.entity}</div><div class="sugg-name">${s.name}</div><div class="sugg-dist">${sInfo}</div>`;
     btn.onclick=()=>{
-      _selTarget=s;
+      _selTarget={...s, distNum:sDist, azNum:sAz};
       document.getElementById('s-dx').value=s.entity;
-      document.getElementById('dx-hint').textContent=s.name+' · '+s.grid+' · '+s.dist+' · '+s.az;
+      document.getElementById('dx-hint').textContent=s.name+' · '+s.grid+(sDist?' · '+sDist.toLocaleString()+' km · '+sAz+'°':'');
       grid.querySelectorAll('.sugg-btn').forEach(b=>b.classList.remove('sel'));
       btn.classList.add('sel');
     };
@@ -1031,14 +1034,11 @@ function hintDX(v) {
   if (!v) { h.textContent=''; return; }
   const e = lookupDX(v);
   if (e) {
-    _selTarget = {...e, entity:v.toUpperCase()};
-    const ll = S.user;
-    if (ll.lat) {
-      _selTarget.dist = haversine(ll.lat,ll.lon,e.lat,e.lon);
-      _selTarget.az   = bearing(ll.lat,ll.lon,e.lat,e.lon);
-      _selTarget.azlp = Math.round((_selTarget.az+180)%360);
-    }
-    h.textContent = e.name+' · '+e.grid+(ll.lat?' · '+_selTarget.dist+' km':'');
+    const u2 = S.user;
+    const distN = u2.lat ? haversine(u2.lat,u2.lon,e.lat,e.lon) : null;
+    const azN   = u2.lat ? bearing(u2.lat,u2.lon,e.lat,e.lon) : null;
+    _selTarget = {...e, entity:v.toUpperCase(), distNum:distN, azNum:azN};
+    h.textContent = e.name+' · '+e.grid+(distN?' · '+distN.toLocaleString()+' km · '+azN+'°':'');
   } else {
     h.textContent = v.length>1 ? 'Prefix not recognised' : '';
   }
@@ -1054,9 +1054,9 @@ function createWatch2() {
 
   if (!u.lat) { toast('Please set your location first','err'); _setupStep=1; renderSetupStep(); return; }
 
-  const dist  = target.dist || haversine(u.lat,u.lon,target.lat,target.lon);
-  const az    = target.az   || bearing(u.lat,u.lon,target.lat,target.lon);
-  const azlp  = target.azlp || Math.round((az+180)%360);
+  const dist  = target.distNum || haversine(u.lat,u.lon,target.lat,target.lon);
+  const az    = target.azNum   || bearing(u.lat,u.lon,target.lat,target.lon);
+  const azlp  = Math.round((az+180)%360);
 
   const w = {
     id:        crypto.randomUUID(),
@@ -1172,9 +1172,39 @@ function setTheme(light) {
   saveUser();
 }
 
+const STRINGS = {
+  en: {
+    good:'● GOOD WINDOW', soon:'◑ OPENING SOON', wait:'○ WAITING', poor:'✕ CLOSED',
+    next:'Next:', until:'Until ~', overview:'Overview', settings:'Settings',
+    quickCheck:'Quick check', addWatch:'+ Watch', noWatches:'No watches yet',
+    addFirst:'+ Add watch', location:'Location not set',
+    locationHint:'Go to Settings → Location to enter your grid square',
+    setAlarm:'Set alarm', exportCal:'Export .ics',
+    alarmSet:'Alarm set — ', windowOpens:' — when window opens',
+    saved:'saved', classSet:'Class',
+  },
+  nl: {
+    good:'● GOED MOMENT', soon:'◑ OPENT BINNENKORT', wait:'○ WACHTEN', poor:'✕ GESLOTEN',
+    next:'Volgend:', until:'Tot ~', overview:'Overzicht', settings:'Instellingen',
+    quickCheck:'Snelle check', addWatch:'+ Watch', noWatches:'Nog geen watches',
+    addFirst:'+ Voeg toe', location:'Locatie niet ingesteld',
+    locationHint:'Ga naar Instellingen → Locatie om je grid square in te vullen',
+    setAlarm:'Alarm instellen', exportCal:'Exporteer .ics',
+    alarmSet:'Alarm ingesteld — ', windowOpens:' — zodra venster opent',
+    saved:'opgeslagen', classSet:'Klasse',
+  }
+};
+function T(key) { return (STRINGS[S.user.lang||'en']||STRINGS.en)[key] || key; }
+
 function saveLang(lang) {
   S.user.lang=lang;
   saveUser();
+  // Update nav labels
+  const navLabels = document.querySelectorAll('.nav-tab');
+  if (navLabels[0]) navLabels[0].childNodes[navLabels[0].childNodes.length-1].textContent = T('overview');
+  if (navLabels[2]) navLabels[2].childNodes[navLabels[2].childNodes.length-1].textContent = T('settings');
+  // Re-render watch list with new language
+  renderWatchList();
   toast(lang==='nl'?'Taal: Nederlands':'Language: English','info');
 }
 
@@ -1222,7 +1252,7 @@ async function doTestAPI() {
   });
   await testOne('sfi',apiURLs.sfi,d=>{
     // NOAA field names vary: try all known variants
-    const fields=['flux','sfi','f10','observed-flux','sfi_observed','solar-flux'];
+    const fields=['f10.7','observed-flux','flux','sfi','f10','solar-flux'];
     for(let i=d.length-1;i>=0;i--){
       for(const f of fields){
         const v=parseFloat(d[i][f]);
