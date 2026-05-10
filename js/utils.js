@@ -2,10 +2,6 @@
 
 const DEG = Math.PI / 180;
 
-/**
- * Haversine distance between two lat/lon points.
- * @returns {number} Distance in km
- */
 export function calcDistance(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = (lat2 - lat1) * DEG;
@@ -15,10 +11,6 @@ export function calcDistance(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.asin(Math.sqrt(a));
 }
 
-/**
- * Short-path bearing from point A to point B.
- * @returns {number} Bearing in degrees (0–360)
- */
 export function calcBearing(lat1, lon1, lat2, lon2) {
   const dLon = (lon2 - lon1) * DEG;
   const y = Math.sin(dLon) * Math.cos(lat2 * DEG);
@@ -27,32 +19,20 @@ export function calcBearing(lat1, lon1, lat2, lon2) {
   return ((Math.atan2(y, x) / DEG) + 360) % 360;
 }
 
-/**
- * Decode a Maidenhead grid square to lat/lon centre.
- * Supports 2, 4 or 6-character grids.
- * @returns {{ lat: number, lon: number }}
- */
 export function gridToLatLon(grid) {
   const g = grid.toUpperCase();
   let lon = (g.charCodeAt(0) - 65) * 20 - 180;
   let lat = (g.charCodeAt(1) - 65) * 10 - 90;
-  if (g.length >= 4) {
-    lon += parseInt(g[2]) * 2;
-    lat += parseInt(g[3]);
-  }
+  if (g.length >= 4) { lon += parseInt(g[2]) * 2; lat += parseInt(g[3]); }
   if (g.length >= 6) {
     lon += (g.charCodeAt(4) - 65) * (2/24);
     lat += (g.charCodeAt(5) - 65) * (1/24);
   }
-  // Centre of the square
   lon += g.length >= 6 ? 1/24 : g.length >= 4 ? 1 : 10;
   lat += g.length >= 6 ? 0.5/24 : g.length >= 4 ? 0.5 : 5;
   return { lat: Math.round(lat*1000)/1000, lon: Math.round(lon*1000)/1000 };
 }
 
-/**
- * Encode lat/lon to a 6-character Maidenhead grid.
- */
 export function latLonToGrid(lat, lon) {
   const lo = lon + 180, la = lat + 90;
   const A = String.fromCharCode(65 + Math.floor(lo / 20));
@@ -64,16 +44,34 @@ export function latLonToGrid(lat, lon) {
   return A + B + C + D + E + F;
 }
 
-/**
- * Format a UTC Date as "HH:MM UTC"
- */
+/** Format UTC time as "21:17 UTC" */
 export function formatUTC(date) {
   return date.toUTCString().slice(17, 22) + ' UTC';
 }
 
+/** Format local time in a given timezone as "23:17" */
+export function formatLocal(date, tz) {
+  try {
+    return date.toLocaleTimeString('en-GB', {
+      timeZone: tz || Intl.DateTimeFormat().resolvedOptions().timeZone,
+      hour: '2-digit', minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
+
 /**
- * Format a countdown in seconds as "Xh Ym" or "Ym" or "Xs"
+ * Format both UTC and local time: "21:17 UTC / 23:17 lokaal"
+ * Used in watch detail, alarm toast, ics summary
  */
+export function formatBothTimes(date, tz) {
+  const utc   = formatUTC(date);
+  const local = formatLocal(date, tz);
+  if (!local || local === utc.slice(0,5)) return utc;
+  return `${utc} / ${local} local`;
+}
+
 export function formatCountdown(seconds) {
   if (seconds <= 0) return 'now';
   const h = Math.floor(seconds / 3600);
@@ -83,15 +81,10 @@ export function formatCountdown(seconds) {
   return `${seconds}s`;
 }
 
-/**
- * Look up a DXCC entity by callsign prefix.
- * Returns the best matching entity or null.
- */
 export function prefixToEntity(callsign, dxccData) {
   if (!dxccData?.length) return null;
   const upper = callsign.toUpperCase();
-  // Try longest prefix first (3 chars, then 2, then 1)
-  for (let len = 3; len >= 1; len--) {
+  for (let len = Math.min(4, upper.length); len >= 1; len--) {
     const pfx = upper.slice(0, len);
     const match = dxccData.find(e => e.prefix === pfx);
     if (match) return match;
@@ -99,9 +92,7 @@ export function prefixToEntity(callsign, dxccData) {
   return null;
 }
 
-/**
- * Calculate age of a timestamp in minutes.
- */
 export function ageMinutes(isoString) {
+  if (!isoString) return 999;
   return Math.round((Date.now() - new Date(isoString).getTime()) / 60000);
 }

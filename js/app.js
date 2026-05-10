@@ -8,7 +8,7 @@ import { initSetup, initNewWatch, setDxccData }  from './setup.js';
 import { watchWindowToICS, downloadICS }        from './export.js';
 import { t, setLang }                           from './i18n.js';
 import { showScreen, showToast }                from './ui.js';
-import { formatUTC, ageMinutes }                from './utils.js';
+import { formatUTC, formatBothTimes, formatLocal, ageMinutes } from './utils.js';
 
 /* ── Boot ── */
 window.addEventListener('DOMContentLoaded', async () => {
@@ -285,6 +285,10 @@ function showWatchDetail(watch) {
                   font-family:var(--font-mono);color:${nwColor}">
         ${formatUTC(nw.time)}
       </div>
+      <div style="font-size:var(--text-sm);font-family:var(--font-mono);
+                  color:var(--color-text-secondary);margin-top:2px">
+        ${formatLocal(nw.time, state.user.timezone)} local (${state.user.timezone})
+      </div>
       <div style="font-size:var(--text-sm);color:var(--color-text-secondary);
                   font-family:var(--font-mono);margin-top:var(--space-1)">
         Expected reliability: ${nwPct}%
@@ -373,14 +377,16 @@ window._pwHandleDelete = function(id) {
 window._pwHandleAlarm = function(id) {
   const watch = state.watches.find(w => w.id === id);
   if (!watch) return;
-  const timeStr = watch.nextWindow ? formatUTC(watch.nextWindow.time) : 'when window opens';
+  const timeStr = watch.nextWindow
+    ? formatBothTimes(watch.nextWindow.time, state.user.timezone)
+    : 'when window opens';
   showToast(`Alarm set — ${watch.label} — ${timeStr}`, 'success');
 };
 
 window._pwHandleExport = function(id) {
   const watch = state.watches.find(w => w.id === id);
   if (!watch?.nextWindow) { showToast('No upcoming window found', 'warn'); return; }
-  const ics = watchWindowToICS(watch, watch.nextWindow);
+  const ics = watchWindowToICS(watch, watch.nextWindow, state.user.timezone);
   downloadICS(ics, `${watch.label}-${watch.band}.ics`);
   showToast('Calendar file downloaded', 'success');
 };

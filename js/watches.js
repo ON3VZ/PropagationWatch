@@ -114,23 +114,45 @@ export function evaluateAllWatches() {
   publish('watches', state.watches);
 }
 
-/** Find next window where reliability >= threshold within 24h. */
+/** Find next window where reliability >= threshold within 24h.
+ *  Returns the FIRST window meeting threshold, or the best moment if none found. */
 function findNextWindow(watch) {
   const { lat: uLat, lon: uLon } = state.user;
-  const pw = watch.txPowerOverride ?? state.user.txPowerW ?? 100;
+  const pw        = watch.txPowerOverride ?? state.user.txPowerW ?? 100;
   const threshold = watch.thresholdPct / 100;
-  const STEP = 15 * 60 * 1000;
+  const STEP      = 15 * 60 * 1000;   // 15-minute steps → 96 per 24h
 
-  let best = null;
+  let firstAboveThreshold = null;
+  let bestMoment          = null;
+  let bestRel             = -1;
+
   for (let i = 1; i <= 96; i++) {
-    const t2 = new Date(Date.now() + i * STEP);
+    const t2  = new Date(Date.now() + i * STEP);
     const txE = getSolarElevation(uLat, uLon, t2);
     const rxE = getSolarElevation(watch.lat, watch.lon, t2);
-    const r   = calcReliability({ band: watch.band, mode: watch.mode, distKm: watch.distanceKm, txSunElev: txE, rxSunElev: rxE, txPowerW: pw });
-    if (r.reliability >= threshold) { best = { time: t2, reliability: r.reliability }; break; }
-    if (!best || r.reliability > best.reliability) best = { time: t2, reliability: r.reliability };
+    const r   = calcReliability({
+      band:      watch.band,
+      mode:      watch.mode,
+      distKm:    watch.distanceKm,
+      txSunElev: txE,
+      rxSunElev: rxE,
+      txPowerW:  pw,
+    });
+
+    // Track first moment above threshold
+    if (r.reliability >= threshold && !firstAboveThreshold) {
+      firstAboveThreshold = { time: t2, reliability: r.reliability };
+    }
+
+    // Track global best
+    if (r.reliability > bestRel) {
+      bestRel    = r.reliability;
+      bestMoment = { time: t2, reliability: r.reliability };
+    }
   }
-  return best;
+
+  // Prefer first threshold crossing, fall back to best moment
+  return firstAboveThreshold ?? bestMoment;
 }
 
 /** Alarm pipeline — debounced, max 1 per 4h per watch. */

@@ -14,6 +14,7 @@ export const state = {
     licenseClass: 'A',
     txPowerW:     100,
     qrpMode:      false,
+    timezone:     Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Brussels',
   },
   propagation: {
     kp:          null,
