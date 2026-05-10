@@ -1,518 +1,979 @@
-/** app.js — Initialisation, routing, orchestration */
+/* Propagation Watch — Main Application
+ * All logic: state, calculations, rendering, API
+ * No ES modules, no imports — loaded as plain script
+ */
 
-import { state, loadPersistedState, subscribe, persistUser, persistWatches } from './state.js';
-import { fetchNOAA, noaaStaleness }             from './noaa.js';
-import { evaluateAllWatches, STATUS_COLOR, deleteWatch } from './watches.js';
-import { initTimeline }                         from './timeline.js';
-import { initSetup, initNewWatch, setDxccData }  from './setup.js';
-import { watchWindowToICS, downloadICS }        from './export.js';
-import { t, setLang }                           from './i18n.js';
-import { showScreen, showToast }                from './ui.js';
-import { initSettings, syncSettingsUI, updatePowerDisplay } from './settings.js';
-import { formatUTC, formatBothTimes, formatLocal, ageMinutes } from './utils.js';
+/* ═══════════════════════════════════════════════════════
+   PROPAGATION WATCH — Single-file app
+   All logic here, no ES modules, no import/export
+   ═══════════════════════════════════════════════════════ */
 
-/* ── Register real globals after module load ── */
-window._pwEvaluate = function() {
-  evaluateAllWatches();
-  publish('watches', state.watches);
+// ── State ──
+const S = {
+  user: JSON.parse(localStorage.getItem('pw_user') || '{}'),
+  prop: JSON.parse(localStorage.getItem('pw_noaa') || '{"kp":null,"sfi":null,"gScale":0,"fetchedAt":null}'),
+  watches: JSON.parse(localStorage.getItem('pw_watches') || '[]'),
 };
 
-window._pwFetchNOAA = function() { fetchNOAA(); };
+// Defaults
+S.user.licenseClass = S.user.licenseClass || 'A';
+S.user.txPowerW     = S.user.txPowerW     || 100;
 
-window._pwInitNewWatch = function() {
-  showScreen('setup');
-  initNewWatch();
-};
-
-/* ── Boot ── */
-window.addEventListener('DOMContentLoaded', async () => {
-
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/PropagationWatch/sw.js')
-      .catch(e => console.warn('SW:', e));
-  }
-
-  loadPersistedState();
-
-  // Load saved NOAA config
-  const savedCfg = JSON.parse(localStorage.getItem('pw_noaa_config') || 'null');
-  if (savedCfg) {
-    const { NOAA_CONFIG } = await import('./noaa.js');
-    Object.assign(NOAA_CONFIG, savedCfg);
-  }
-
-  // Apply theme and language
-  document.documentElement.dataset.theme = state.user.theme ?? 'dark';
-  setLang(state.user.lang ?? 'en');
-
-  // Load static data
-  const base = '/PropagationWatch';
-  const [dxcc] = await Promise.all([
-    fetch(`${base}/data/dxcc-entities.json`).then(r => r.json()).catch(() => []),
-  ]);
-  setDxccData(dxcc);
-
-  // Route
-  const action = new URLSearchParams(location.search).get('action');
-  if (!state.user.configured) {
-    showScreen('setup'); initSetup();
-  } else if (action === 'new-watch') {
-    showScreen('setup'); initNewWatch();
-  } else {
-    showScreen('home');
-  }
-
-  // Fetch live data
-  await fetchNOAA();
-  evaluateAllWatches();
-  initTimeline();
-  renderHome();
-
-  subscribe('watches',     () => { renderWatchList(); renderStormBanner(); });
-  subscribe('propagation', () => { renderStatusBar(); renderStormBanner(); });
-
-  setInterval(fetchNOAA,          5 * 60 * 1000);
-
-  // Modules loaded — real globals now active
-  setInterval(evaluateAllWatches, 5 * 60 * 1000);
-  setInterval(() => {
-    const el = document.getElementById('timeline-now');
-    if (el) el.textContent = new Date().toUTCString().slice(17, 22) + ' UTC';
-  }, 30000);
-});
-
-// syncSettingsUI is in settings.js
-
-/* ── Home screen ── */
-function renderHome() {
-  renderStatusBar();
-  renderWatchList();
-  renderStormBanner();
-  const el = document.getElementById('timeline-now');
-  if (el) el.textContent = new Date().toUTCString().slice(17, 22) + ' UTC';
+// Migrate old watch schema (from ES module version)
+S.watches = S.watches.map(w => ({
+  ...w,
+  pw:   null,  // always use global S.user.txPowerW
+  dist: typeof w.dist === 'string' ? parseFloat(w.dist.replace(/[^0-9.]/g,'')) || 0 : (w.dist || w.distanceKm || 0),
+  az:   w.az || w.bearingShort || 0,
+  azlp: w.azlp || w.bearingLong || 0,
+  lat:  w.lat || 0,
+  lon:  w.lon || 0,
+})).filter(w => w.lat && w.lon && w.dist > 0);
+S.user.qrpMode      = S.user.qrpMode      || false;
+S.user.theme        = S.user.theme        || 'dark';
+S.user.lang         = S.user.lang         || 'en';
+S.user.configured   = S.user.configured   || false;
+S.user.timezone     = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Brussels';
+// Recover lat/lon from grid if missing
+if (!S.user.lat && S.user.grid) {
+  try { const ll = gridToLL(S.user.grid); S.user.lat = ll.lat; S.user.lon = ll.lon; } catch(e) {}
 }
 
-/* ── Status bar ── */
-function renderStatusBar() {
-  const bar = document.getElementById('status-bar');
-  if (!bar) return;
-  const { kp, sfi, gScale } = state.propagation;
-  const age = state.propagation.fetchedAt ? ageMinutes(state.propagation.fetchedAt) : null;
+// ── Save helpers ──
+function saveUser()    { try { localStorage.setItem('pw_user',    JSON.stringify(S.user));    } catch(e) {} }
+function saveWatches() { try { localStorage.setItem('pw_watches', JSON.stringify(S.watches)); } catch(e) {} }
+function saveNoaa()    { try { localStorage.setItem('pw_noaa',    JSON.stringify(S.prop));    } catch(e) {} }
 
-  const kpColor = !kp || kp < 3 ? 'var(--color-good-text)'
-    : kp < 5 ? 'var(--color-warn-text)'
-    : 'var(--color-bad-text)';
-
-  const staleness = noaaStaleness();
-  const staleColor = staleness === 'stale' ? 'var(--color-bad-text)'
-    : staleness === 'warn' ? 'var(--color-warn-text)'
-    : 'var(--color-text-muted)';
-
-  bar.innerHTML = `
-    <span class="status-bar__item">
-      <span class="status-bar__label">Kp</span>
-      <span class="mono" style="color:${kpColor}">${kp != null ? kp.toFixed(1) : '—'}</span>
-    </span>
-    <span class="status-bar__item">
-      <span class="status-bar__label">SFI</span>
-      <span class="mono">${sfi ?? '—'}</span>
-    </span>
-    <span class="status-bar__item">
-      <span style="font-size:var(--text-xs);color:${gScale > 0 ? 'var(--color-bad-text)':'var(--color-text-muted)'}">G${gScale ?? 0}</span>
-    </span>
-    <span class="status-bar__stale" style="color:${staleColor}">
-      ${age != null ? `${age}m ago` : 'no data'}
-    </span>
-    <button class="btn btn--icon"
-      style="width:32px;height:32px;min-height:unset;font-size:13px;margin-left:auto"
-      title="Refresh" onclick="window._pwFetchNOAA && window._pwFetchNOAA()">↺</button>`;
+// ── Toast ──
+function toast(msg, type) {
+  type = type || 'info';
+  const cls = {ok:'toast-ok',warn:'toast-warn',err:'toast-err',info:'toast-info'}[type] || 'toast-info';
+  const el = document.createElement('div');
+  el.className = 'toast ' + cls;
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
 }
 
-/* ── Watch list ── */
-function renderWatchList() {
-  const list = document.getElementById('watch-list');
-  if (!list) return;
-
-  if (!state.watches.length) {
-    list.innerHTML = `<div style="text-align:center;padding:var(--space-10) var(--space-4);color:var(--color-text-muted);font-size:var(--text-sm)">
-      No watches yet — tap <strong>+ Watch</strong> to add one</div>`;
-    return;
-  }
-
-  const ORDER = { OPTIMAL: 0, APPROACHING: 1, WAITING: 2, POOR: 3, INACTIVE: 4 };
-  const sorted = [...state.watches].sort((a, b) => (ORDER[a.status] ?? 5) - (ORDER[b.status] ?? 5));
-
-  list.innerHTML = sorted.map(watchCardHTML).join('');
-
-  list.querySelectorAll('.watch-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const w = state.watches.find(w => w.id === card.dataset.id);
-      if (w) showWatchDetail(w);
-    });
+// ── Navigation ──
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+  ['home','setup','settings'].forEach(t => {
+    const el = document.getElementById('tab-' + t);
+    if (el) el.classList.toggle('active', t === id || (id === 'detail' && t === 'home'));
   });
 }
+function goHome()     { showScreen('home');     renderHome(); }
+function goSettings() { showScreen('settings'); syncSettingsUI(); }
+function goNewWatch() { showScreen('setup');    renderSetup(); }
 
-function watchCardHTML(w) {
-  const pct   = Math.round((w.reliability ?? 0) * 100);
-  const color = STATUS_COLOR[w.status] ?? 'var(--color-neutral)';
-  const pw    = w.txPowerOverride ?? state.user.txPowerW ?? 100;
-  const nw    = w.nextWindow;
+// ── NOAA ──
+async function fetchNoaa() {
+  const BASE = 'https://services.swpc.noaa.gov/json';
+  const TOUT = 10000;
+  let ok = false;
 
-  let stateLabel = '';
-  let windowLine = '';
-
-  switch (w.status) {
-    case 'OPTIMAL':
-      stateLabel = '● GOOD WINDOW';
-      windowLine = nw
-        ? `Open now — until ~<strong>${formatUTC(nw.time)}</strong>`
-        : 'Open now';
-      break;
-    case 'APPROACHING':
-      stateLabel = '◑ OPENING SOON';
-      windowLine = nw
-        ? `Opens at <strong>${formatUTC(nw.time)}</strong>`
-        : '';
-      break;
-    case 'WAITING':
-      stateLabel = '○ WAITING';
-      windowLine = nw
-        ? `Next window: <strong>${formatUTC(nw.time)}</strong> · ${Math.round(nw.reliability * 100)}%`
-        : 'Calculating...';
-      break;
-    case 'POOR':
-      stateLabel = '✕ CLOSED';
-      windowLine = nw && nw.reliability > 0.10
-        ? `Best today: <strong>${formatUTC(nw.time)}</strong> · ${Math.round(nw.reliability * 100)}%`
-        : 'No window expected today';
-      break;
-    default:
-      stateLabel = 'INACTIVE';
-      windowLine = '';
+  function tFetch(url) {
+    return new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('Timeout')), TOUT);
+      fetch(url).then(r => { clearTimeout(t); res(r); }).catch(e => { clearTimeout(t); rej(e); });
+    });
   }
 
-  return `
-  <div class="watch-card card--clickable" data-id="${w.id}" data-status="${w.status}"
-       style="--status-color:${color}">
-    <div class="watch-card__header">
+  try {
+    const r = await tFetch(BASE + '/planetary_k_index_1m.json');
+    const d = await r.json();
+    for (let i = d.length-1; i >= 0; i--) {
+      const v = parseFloat(d[i].Kp || d[i].kp);
+      if (!isNaN(v)) { S.prop.kp = v; ok = true; break; }
+    }
+  } catch(e) { console.warn('Kp fetch:', e.message); }
+
+  try {
+    const r = await tFetch(BASE + '/solar-cycle/observed-solar-cycle-indices.json');
+    const d = await r.json();
+    for (let i = d.length-1; i >= 0; i--) {
+      const row = d[i];
+      // Try all known field names for SFI
+      const v = parseFloat(row['f10.7'] || row['observed-flux'] || row.flux || row.sfi || row.f10 || row['solar-flux']);
+      if (!isNaN(v) && v > 50 && v < 500) { S.prop.sfi = v; ok = true; break; }
+      // Last resort: scan all numeric fields in valid range
+      for (const k of Object.keys(row)) {
+        const vk = parseFloat(row[k]);
+        if (!isNaN(vk) && vk > 50 && vk < 500) { S.prop.sfi = vk; ok = true; break; }
+      }
+      if (ok) break;
+    }
+  } catch(e) { console.warn('SFI fetch:', e.message); }
+
+  try {
+    const r = await tFetch(BASE + '/noaa-scales.json');
+    const d = await r.json();
+    S.prop.gScale = parseInt(d?.G?.Scale || 0);
+  } catch(e) { console.warn('Scales fetch:', e.message); }
+
+  if (ok) {
+    S.prop.fetchedAt = new Date().toISOString();
+    saveNoaa();
+  }
+  updateStatusBar();
+  renderWatchList();
+  renderTimeline();
+  return ok;
+}
+
+async function doRefresh() { toast('Refreshing…','info'); await fetchNoaa(); }
+
+// ── Status bar ──
+function ageMin(iso) {
+  if (!iso) return 9999;
+  return Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+}
+function updateStatusBar() {
+  const kp  = S.prop.kp;
+  const sfi = S.prop.sfi;
+  const age = ageMin(S.prop.fetchedAt);
+  const kpEl = document.getElementById('sb-kp');
+  const sfiEl = document.getElementById('sb-sfi');
+  const gEl   = document.getElementById('sb-g');
+  const ageEl = document.getElementById('sb-age');
+  if (!kpEl) return;
+  kpEl.textContent = kp != null ? kp.toFixed(1) : '—';
+  kpEl.className = 'val ' + (!kp||kp<3?'kp-ok':kp<5?'kp-warn':'kp-bad');
+  sfiEl.textContent = sfi ?? '—';
+  gEl.textContent = 'G' + (S.prop.gScale || 0);
+  ageEl.textContent = age < 999 ? age + 'm ago' : 'no data';
+  ageEl.style.color = age > 120 ? 'var(--bad-tx)' : age > 30 ? 'var(--warn-tx)' : 'var(--tx3)';
+}
+
+// ── Propagation calculations ──
+const BAND_FREQ = {'160m':1.85,'80m':3.65,'40m':7.1,'30m':10.12,'20m':14.2,
+                   '17m':18.1,'15m':21.2,'12m':24.9,'10m':28.5,'6m':50.1};
+const KP_MAT = {
+  '160m':[1,.9,.75,.5,.25,.1,0,0,0,0],'80m':[1,.9,.8,.6,.35,.15,.05,0,0,0],
+  '40m':[1,.95,.85,.7,.5,.25,.1,.05,0,0],'30m':[1,.98,.9,.8,.6,.35,.15,.05,0,0],
+  '20m':[1,1,.95,.85,.65,.4,.2,.05,0,0],'17m':[1,1,.97,.88,.7,.45,.25,.1,.02,0],
+  '15m':[1,1,.98,.9,.75,.5,.3,.12,.03,0],'10m':[1,1,1,.95,.82,.6,.38,.18,.06,.01],
+  '6m':[1,1,1,.97,.88,.7,.5,.3,.12,.04]
+};
+const D_LAYER = {'160m':{max:.95,half:6},'80m':{max:.9,half:10},'40m':{max:.82,half:18},'30m':{max:.35,half:35}};
+const MODE_MARGIN = {FT8:20,FT4:18,JT65:22,CW:13,SSB:6,AM:4,MSK144:12};
+
+function sunElev(lat, lon, date) {
+  if (!window.SunCalc || lat==null || isNaN(lat)) return -90;
+  try {
+    const p = SunCalc.getPosition(date || new Date(), lat, lon);
+    const d = p.altitude * 180 / Math.PI;
+    return isNaN(d) ? -90 : d;
+  } catch(e) { return -90; }
+}
+
+function calcMUF(sfi, distKm) {
+  const foF2 = 2 + (sfi/150)*8;
+  return foF2 * (2.5 + Math.min(2.5, distKm/3000));
+}
+function dlayer(band, elev) {
+  if (elev <= 0) return 1;
+  const cfg = D_LAYER[band];
+  if (!cfg) return 1;
+  const t = elev/cfg.half;
+  return Math.max(0.03, 1 - cfg.max*(t*t)/(1+t*t));
+}
+function kpDeg(band, kp) {
+  const row = KP_MAT[band] || KP_MAT['20m'];
+  const lo = Math.min(9, Math.max(0, Math.floor(kp||0)));
+  const hi = Math.min(9, lo+1);
+  const fr = (kp||0) - Math.floor(kp||0);
+  return row[lo]*(1-fr) + row[hi]*fr;
+}
+function f2grad(txEl, rxEl, midEl, distKm, band) {
+  const F2B = ['20m','17m','15m','12m','10m','6m'];
+  if (!F2B.includes(band)) return 1;
+  const dw = Math.min(1, Math.max(0, (distKm-1500)/6000));
+  if (dw < .05) return 1;
+  const norm = e => Math.max(-1,Math.min(1,e/20));
+  const grad = Math.abs(norm(txEl)-norm(rxEl))/2;
+  const mid  = Math.max(0, norm(midEl||0));
+  const floor = .4 + .2*(1-dw);
+  return Math.max(floor, Math.min(1, floor + (1-floor)*grad - mid*mid*.2*dw));
+}
+function multiHop(band, distKm) {
+  const lim = {'160m':4000,'80m':6000};
+  const m = lim[band];
+  if (!m || distKm <= m) return 1;
+  return Math.max(.05, Math.exp(-.18*(distKm-m)/2000));
+}
+function pwrFactor(pw, mode) {
+  const db  = 10*Math.log10((pw||100)/100);
+  const mg  = MODE_MARGIN[mode] || 10;
+  return Math.max(.1, Math.min(1.2, 1+db/mg));
+}
+
+function calcRel(band, mode, distKm, txLat, txLon, rxLat, rxLon, pw, atDate) {
+  const at   = atDate || new Date();
+  const kp   = S.prop.kp  || 0;
+  const sfi  = S.prop.sfi || 70;
+  const freq = BAND_FREQ[band] || 14.2;
+  const muf  = calcMUF(sfi, distKm);
+  if (freq > muf*1.10) return {rel:0, base:0, muf};
+  if (freq > muf*0.95) return {rel:.15, base:.15, muf};
+
+  const txEl  = sunElev(txLat, txLon, at);
+  const rxEl  = sunElev(rxLat, rxLon, at);
+  const midEl = sunElev((txLat+rxLat)/2, (txLon+rxLon)/2, at);
+
+  let b = Math.max(.05, Math.min(1, sfi/150));
+  b *= kpDeg(band, kp);
+  b *= dlayer(band, txEl);
+  b *= dlayer(band, rxEl);
+  b *= multiHop(band, distKm);
+  b *= f2grad(txEl, rxEl, midEl, distKm, band);
+  b  = Math.max(0, Math.min(.99, b));
+
+  const pf  = pwrFactor(pw||100, mode);
+  const rel = Math.max(0, Math.min(.99, b*pf));
+  return {rel, base:b, muf, txEl, rxEl};
+}
+
+// ── Watch evaluation ──
+function evalWatch(w) {
+  const u = S.user;
+  if (!u.lat || !w.lat) { w.rel=0; w.status='WAITING'; w.nextWin=null; return; }
+  const r = calcRel(w.band, w.mode, w.dist, u.lat, u.lon, w.lat, w.lon, w.pw||u.txPowerW);
+  w.rel    = r.rel;
+  w.base   = r.base;
+  w.status = relToStatus(r.rel, (w.threshold||60)/100);
+  w.nextWin = findNext(w);
+}
+function relToStatus(r, thr) {
+  if (r >= thr)         return 'GOOD';
+  if (r >= thr * .75)   return 'SOON';
+  if (r >= .10)         return 'WAIT';
+  return 'POOR';
+}
+function findNext(w) {
+  const u   = S.user;
+  const thr = (w.threshold||60)/100;
+  const STEP = 15*60*1000;
+  let best = null;
+  let first = null;
+  for (let i=1; i<=96; i++) {
+    const t = new Date(Date.now() + i*STEP);
+    const r = calcRel(w.band, w.mode, w.dist, u.lat, u.lon, w.lat, w.lon, w.pw||u.txPowerW, t);
+    if (r.rel >= thr && !first) first = {time:t, rel:r.rel};
+    if (!best || r.rel > best.rel) best = {time:t, rel:r.rel};
+  }
+  return first || best;
+}
+function evalAll() { S.watches.forEach(evalWatch); renderWatchList(); renderTimeline(); }
+
+// ── Time formatting ──
+function fmtUTC(d) { return d.toUTCString().slice(17,22)+' UTC'; }
+function fmtLocal(d) {
+  try { return d.toLocaleTimeString('en-GB',{timeZone:S.user.timezone,hour:'2-digit',minute:'2-digit'}); }
+  catch(e){ return ''; }
+}
+function fmtBoth(d) {
+  const u = fmtUTC(d), l = fmtLocal(d);
+  return l && l !== u.slice(0,5) ? u + ' / ' + l + ' local' : u;
+}
+
+// ── Distance & bearing ──
+function haversine(la1,lo1,la2,lo2) {
+  const R=6371, d2r=Math.PI/180;
+  const dLa=(la2-la1)*d2r, dLo=(lo2-lo1)*d2r;
+  const a=Math.sin(dLa/2)**2+Math.cos(la1*d2r)*Math.cos(la2*d2r)*Math.sin(dLo/2)**2;
+  return Math.round(R*2*Math.asin(Math.sqrt(a)));
+}
+function bearing(la1,lo1,la2,lo2) {
+  const dLo=(lo2-lo1)*Math.PI/180;
+  const y=Math.sin(dLo)*Math.cos(la2*Math.PI/180);
+  const x=Math.cos(la1*Math.PI/180)*Math.sin(la2*Math.PI/180)-Math.sin(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.cos(dLo);
+  return Math.round(((Math.atan2(y,x)/Math.PI*180)+360)%360);
+}
+function gridToLL(g) {
+  g = g.toUpperCase();
+  let lo=(g.charCodeAt(0)-65)*20-180, la=(g.charCodeAt(1)-65)*10-90;
+  if(g.length>=4){lo+=parseInt(g[2])*2;la+=parseInt(g[3]);}
+  if(g.length>=6){lo+=(g.charCodeAt(4)-65)*(2/24);la+=(g.charCodeAt(5)-65)*(1/24);}
+  lo+=g.length>=6?1/24:g.length>=4?1:10;
+  la+=g.length>=6?.5/24:g.length>=4?.5:5;
+  return{lat:Math.round(la*1000)/1000, lon:Math.round(lo*1000)/1000};
+}
+
+// ── Render home ──
+function renderHome() {
+  updateStatusBar();
+  renderWatchList();
+  renderTimeline();
+  document.getElementById('tl-now').textContent = new Date().toUTCString().slice(17,22)+' UTC';
+}
+
+// ── Watch list ──
+const statusColor = {GOOD:'var(--good)',SOON:'var(--good)',WAIT:'var(--warn)',POOR:'var(--bad)',undefined:'var(--bdr)'};
+function statusLabel(s) { return {GOOD:T('good'),SOON:T('soon'),WAIT:T('wait'),POOR:T('poor')}[s]||'—'; }
+
+function renderWatchList() {
+  const el = document.getElementById('watch-list');
+  if (!el) return;
+  if (!S.watches.length) {
+    el.innerHTML = `<div class="empty">${T('noWatches')}<br><br><button class="btn btn-pri" style="max-width:200px;margin:0 auto" onclick="goNewWatch()">${T('addFirst')}</button></div>`;
+    return;
+  }
+  // Warn if location not set
+  if (!S.user.lat) {
+    el.innerHTML = `<div class="empty" style="color:var(--warn-tx)">⚠ ${T('location')}<br><small style="color:var(--tx3)">${T('locationHint')}</small></div>`;
+    return;
+  }
+  const sorted = [...S.watches].sort((a,b) => {
+    const o={GOOD:0,SOON:1,WAIT:2,POOR:3};
+    return (o[a.status]||4)-(o[b.status]||4);
+  });
+  el.innerHTML = sorted.map(w => watchCard(w)).join('');
+}
+
+function watchCard(w) {
+  const col = statusColor[w.status] || 'var(--bdr)';
+  const pct = Math.round((w.rel||0)*100);
+  const pw  = w.pw || S.user.txPowerW || 100;
+  const lbl = statusLabel(w.status);
+  let sub = '';
+  if (w.nextWin) {
+    const t = new Date(w.nextWin.time);
+    const r = isNaN(w.nextWin.rel) ? '?' : Math.round(w.nextWin.rel*100);
+    const u = fmtUTC(t), l = fmtLocal(t);
+    const ts = l && l!==u.slice(0,5) ? u+' / '+l : u;
+    sub = w.status==='GOOD'
+      ? T('until')+ts
+      : T('next')+' <b>'+ts+'</b> · '+r+'%';
+  }
+  return `<div class="card wcard" style="border-left-color:${col}" onclick="openWatch('${w.id}')">
+    <div class="wcard-top">
       <div>
-        <div class="watch-card__title">
-          ${w.label}
-          <span class="power-badge">${pw}W</span>
-        </div>
-        <div class="watch-card__meta mono">${w.band} · ${w.mode} · ${(w.distanceKm ?? 0).toLocaleString()} km · ${w.bearingShort ?? 0}°</div>
+        <div class="wcard-name">${w.label}<span class="pwr-badge">${pw}W</span></div>
+        <div class="wcard-meta">${w.band} · ${w.mode} · ${(w.dist||0).toLocaleString()} km · ${w.az||0}°</div>
       </div>
-      <div class="watch-card__actions">
-        <button class="btn btn--icon" style="width:36px;height:36px;min-height:unset;font-size:16px"
-                title="Set alarm"
-                onclick="event.stopPropagation(); window._pwHandleAlarm && window._pwHandleAlarm('${w.id}')">⏰</button>
-        <button class="btn btn--icon" style="width:36px;height:36px;min-height:unset;font-size:15px;color:var(--color-bad-text)"
-                title="Delete watch"
-                onclick="event.stopPropagation(); window._pwHandleDelete && window._pwHandleDelete('${w.id}')">🗑</button>
+      <div class="wcard-actions">
+        <button class="btn-ico" onclick="event.stopPropagation();alarmWatch('${w.id}')" title="Alarm">⏰</button>
+        <button class="btn-ico btn-del" onclick="event.stopPropagation();deleteWatch('${w.id}')" title="Delete">🗑</button>
       </div>
     </div>
-    <div class="watch-card__status">
-      <div style="flex:1;min-width:0">
-        <div class="watch-card__state">${stateLabel}</div>
-        <div class="watch-card__sub" style="font-size:var(--text-sm);margin-top:3px;color:var(--color-text-secondary)">${windowLine}</div>
+    <div class="wcard-bottom">
+      <div>
+        <div class="wcard-state" style="color:${col}">${lbl}</div>
+        <div class="wcard-sub">${sub}</div>
       </div>
-      <div class="watch-card__pct" style="margin-left:var(--space-3);flex-shrink:0">${pct}%</div>
+      <div class="wcard-pct" style="color:${col}">${pct}%</div>
     </div>
   </div>`;
 }
 
-/* ── Storm banner ── */
-function renderStormBanner() {
-  const el = document.getElementById('storm-banner');
-  if (!el) return;
-  const { kp, gScale } = state.propagation;
-  if (!kp || kp < 4) { el.hidden = true; return; }
-  el.hidden = false;
-  el.innerHTML = `
-    <div class="storm-banner__text">
-      <div class="storm-banner__title">⚠ G${gScale} storm · Kp ${kp.toFixed(1)}</div>
-      <div>HF bands affected — check band conditions</div>
-    </div>
-    <button class="btn btn--secondary" style="font-size:var(--text-xs);white-space:nowrap"
-            onclick="showScreen('storm')">Details →</button>`;
-}
+// ── Watch detail ──
+function openWatch(id) {
+  const w = S.watches.find(x => x.id===id);
+  if (!w) return;
+  document.getElementById('det-title').textContent = w.label+' — '+w.band+' '+w.mode;
+  const pct   = Math.round((w.rel||0)*100);
+  const bpct  = Math.round((w.base||0)*100);
+  const pw    = w.pw || S.user.txPowerW || 100;
+  const col   = statusColor[w.status] || 'var(--bdr)';
+  const diff  = bpct - pct;
+  const nw    = w.nextWin ? {time:new Date(w.nextWin.time), rel:w.nextWin.rel} : null;
 
-/* ── Watch detail ── */
-function showWatchDetail(watch) {
-  state.ui.selectedWatch = watch;
-  const screen = document.getElementById('screen-detail');
-  if (!screen) return;
-
-  const pct      = Math.round((watch.reliability ?? 0) * 100);
-  const basePct  = Math.round((watch.reliabilityBase ?? watch.reliability ?? 0) * 100);
-  const pw       = watch.txPowerOverride ?? state.user.txPowerW ?? 100;
-  const color    = STATUS_COLOR[watch.status] ?? 'var(--color-neutral)';
-  const diff     = basePct - pct;
-  const nw       = watch.nextWindow;
-
-  // Next window block — the key missing piece
-  let nextWindowHTML = '';
+  let nwHtml = '';
   if (nw) {
-    const nwPct  = Math.round(nw.reliability * 100);
-    const nwColor = nwPct >= 60 ? 'var(--color-good)' : nwPct >= 30 ? 'var(--color-warn)' : 'var(--color-bad)';
-    const nwBg    = nwPct >= 60 ? 'var(--color-good-bg)' : nwPct >= 30 ? 'var(--color-warn-bg)' : 'var(--color-bad-bg)';
-    nextWindowHTML = `
-    <div style="background:${nwBg};border:1px solid ${nwColor};border-radius:var(--radius-md);
-                padding:var(--space-4);margin-top:var(--space-4)">
-      <div style="font-size:var(--text-xs);color:var(--color-text-secondary);margin-bottom:var(--space-1)">
-        ${watch.status === 'OPTIMAL' ? 'Current window ends ~' : 'Best window'}
-      </div>
-      <div style="font-size:var(--text-2xl);font-weight:var(--weight-bold);
-                  font-family:var(--font-mono);color:${nwColor}">
-        ${formatUTC(nw.time)}
-      </div>
-      <div style="font-size:var(--text-sm);font-family:var(--font-mono);
-                  color:var(--color-text-secondary);margin-top:2px">
-        ${formatLocal(nw.time, state.user.timezone)} local (${state.user.timezone})
-      </div>
-      <div style="font-size:var(--text-sm);color:var(--color-text-secondary);
-                  font-family:var(--font-mono);margin-top:var(--space-1)">
-        Expected reliability: ${nwPct}%
-      </div>
-      <button class="btn btn--secondary"
-              style="margin-top:var(--space-3);width:100%;font-size:var(--text-sm)"
-              onclick="window._pwHandleExport('${watch.id}')">
-        📅 Export this window to calendar
-      </button>
-    </div>`;
-  } else {
-    nextWindowHTML = `
-    <div style="background:var(--color-bg-tertiary);border:1px solid var(--color-border);
-                border-radius:var(--radius-md);padding:var(--space-4);margin-top:var(--space-4);
-                color:var(--color-text-muted);font-size:var(--text-sm);text-align:center">
-      No suitable window found in the next 24h
+    const nwPct = isNaN(nw.rel) ? 0 : Math.round(nw.rel*100);
+    const nwCol = nwPct>=60?'var(--good)':nwPct>=30?'var(--warn)':'var(--bad)';
+    const nwBg  = nwPct>=60?'var(--good-bg)':nwPct>=30?'var(--warn-bg)':'var(--bad-bg)';
+    nwHtml = `<div style="background:${nwBg};border:1px solid ${nwCol};border-radius:8px;padding:14px;margin:12px 0">
+      <div style="font-size:11px;color:var(--tx2);margin-bottom:4px">${w.status==='GOOD'?'Window ends ~':'Best window'}</div>
+      <div style="font-size:26px;font-weight:700;font-family:var(--mono);color:${nwCol}">${fmtUTC(nw.time)}</div>
+      <div style="font-size:12px;font-family:var(--mono);color:var(--tx2);margin-top:2px">${fmtLocal(nw.time)} local · ${nwPct}% reliability</div>
+      <button class="btn btn-sec" style="margin-top:10px" onclick="exportICS('${id}')">📅 Export to calendar</button>
     </div>`;
   }
 
-  screen.innerHTML = `
-    <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-5)">
-      <button class="btn btn--icon" onclick="showScreen('home')"
-              style="width:40px;height:40px;min-height:unset" title="Back">←</button>
-      <span style="font-weight:var(--weight-bold);font-size:var(--text-md)">
-        ${watch.label} — ${watch.band} ${watch.mode}
-      </span>
+  document.getElementById('det-body').innerHTML = `
+    <div style="font-size:52px;font-weight:700;font-family:var(--mono);color:${col}">${pct}%</div>
+    <div style="font-size:12px;color:var(--tx2);margin-top:4px">path reliability now · at ${pw}W · ${w.mode}</div>
+    ${pw<100&&diff>0?`<div style="font-size:12px;color:var(--tx2);background:var(--bg3);border-radius:6px;padding:8px 12px;margin-top:8px">At 100W: ${bpct}% — ${diff}pt difference</div>`:''}
+    ${nwHtml}
+    <div class="card" style="margin-top:0">
+      <div class="info-table">
+        <div class="info-row"><span class="info-key">SFI</span><span class="info-val">${S.prop.sfi??'—'}</span></div>
+        <div class="info-row"><span class="info-key">Kp</span><span class="info-val">${S.prop.kp!=null?S.prop.kp.toFixed(1):'—'}</span></div>
+        <div class="info-row"><span class="info-key">Power</span><span class="info-val">${pw}W</span></div>
+        <div class="info-row"><span class="info-key">Distance</span><span class="info-val">${(w.dist||0).toLocaleString()} km</span></div>
+        <div class="info-row"><span class="info-key">Bearing</span><span class="info-val">${w.az||0}° / ${w.azlp||0}° LP</span></div>
+        <div class="info-row"><span class="info-key">Grid</span><span class="info-val">${w.grid||'—'}</span></div>
+      </div>
     </div>
-
-    <div style="font-size:var(--text-3xl);font-weight:var(--weight-bold);
-                font-family:var(--font-mono);color:${color}">${pct}%</div>
-    <div style="font-size:var(--text-sm);color:var(--color-text-secondary);margin-top:var(--space-1)">
-      path reliability now
-      <button class="info-btn" title="Calculation details">ⓘ</button>
-    </div>
-    <div style="font-size:var(--text-xs);font-family:var(--font-mono);
-                color:var(--color-text-muted);margin-top:2px">
-      at ${pw}W · Class ${state.user.licenseClass ?? 'A'} · ${watch.mode}
-    </div>
-
-    ${pw < 100 && diff > 0 ? `
-    <div style="background:var(--color-bg-tertiary);border:1px solid var(--color-border);
-                border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);
-                margin-top:var(--space-3);font-size:var(--text-xs);color:var(--color-text-secondary)">
-      At 100W this would be <strong>${basePct}%</strong> — ${diff}pt difference on this path
-    </div>` : ''}
-
-    ${nextWindowHTML}
-
-    <div class="card" style="margin-top:var(--space-4)">
-      ${infoRow('SFI',      state.propagation.sfi ?? '—')}
-      ${infoRow('Kp',       state.propagation.kp != null ? state.propagation.kp.toFixed(1) : '—')}
-      ${infoRow('Power',    `${pw}W`)}
-      ${infoRow('Distance', `${(watch.distanceKm ?? 0).toLocaleString()} km`)}
-      ${infoRow('Bearing',  `${watch.bearingShort ?? 0}° / ${watch.bearingLong ?? 0}° (LP)`)}
-      ${infoRow('Grid',     watch.grid || '—')}
-    </div>
-
-    <div class="btn-row btn-row--full" style="margin-top:var(--space-4)">
-      <button class="btn btn--primary"
-              onclick="window._pwHandleAlarm('${watch.id}')">⏰ Set alarm</button>
-      <button class="btn btn--secondary"
-              onclick="window._pwHandleExport('${watch.id}')">📅 Export .ics</button>
+    <div class="det-btn-row">
+      <button class="btn btn-pri" onclick="alarmWatch('${id}')">⏰ Set alarm</button>
+      <button class="btn btn-sec" onclick="exportICS('${id}')">📅 Export .ics</button>
     </div>`;
-
   showScreen('detail');
 }
 
-function infoRow(label, value) {
-  return `<div style="display:flex;justify-content:space-between;padding:var(--space-2) 0;
-    border-bottom:1px solid var(--color-border-subtle);font-size:var(--text-sm)">
-    <span style="color:var(--color-text-secondary)">${label}</span>
-    <span class="mono">${value}</span>
-  </div>`;
+// ── Delete watch ──
+function deleteWatch(id) {
+  S.watches = S.watches.filter(w => w.id !== id);
+  saveWatches();
+  renderWatchList();
+  toast('Watch deleted','info');
 }
 
-/* ── Global handlers (called from inline onclick and other modules) ── */
-window._pwHandleDelete = function(id) {
-  const watch = state.watches.find(w => w.id === id);
-  if (!watch) return;
-  const deleted = deleteWatch(id);
-  if (deleted) {
-    showToast(`Watch "${deleted.label}" deleted`, 'info');
-  }
-};
-
-window._pwHandleAlarm = function(id) {
-  const watch = state.watches.find(w => w.id === id);
-  if (!watch) return;
-  const timeStr = watch.nextWindow
-    ? formatBothTimes(watch.nextWindow.time, state.user.timezone)
-    : 'when window opens';
-  showToast(`Alarm set — ${watch.label} — ${timeStr}`, 'success');
-};
-
-window._pwHandleExport = function(id) {
-  const watch = state.watches.find(w => w.id === id);
-  if (!watch?.nextWindow) { showToast('No upcoming window found', 'warn'); return; }
-  const ics = watchWindowToICS(watch, watch.nextWindow, state.user.timezone);
-  downloadICS(ics, `${watch.label}-${watch.band}.ics`);
-  showToast('Calendar file downloaded', 'success');
-};
-
-window._pwInitNewWatch = function() {
-  showScreen('setup');
-  initNewWatch();
-};
-
-window._pwFetchNOAA = function() {
-  import('./noaa.js').then(m => m.fetchNOAA());
-};
-
-/* ── Settings handlers — write straight to state + persist ── */
-// Settings handlers moved to settings.js
-  if (hint) {
-    if (v <= 5)        hint.textContent = 'QRP range — only high-reliability paths recommended.';
-    else if (v <= 25)  hint.textContent = 'Class C range — significant reduction on marginal paths.';
-    else if (v < 100)  hint.textContent = 'Moderate power — slight reduction on marginal paths.';
-    else if (v === 100)hint.textContent = 'Reference power — no correction applied.';
-    else               hint.textContent = 'High power — reliability scores are higher.';
-  }
+// ── Alarm ──
+function alarmWatch(id) {
+  const w = S.watches.find(x => x.id===id);
+  if (!w) return;
+  const t = w.nextWin ? fmtBoth(new Date(w.nextWin.time)) : 'when window opens';
+  toast('Alarm set — '+w.label+' — '+t,'ok');
 }
 
-
-/* ── Settings handlers — registered after full boot ── */
-
-window._pwInitSettings = function() { initSettings(); };
-
-window._pwSelectLicClass = function(cls) {
-  const maxMap = { C:25, B:100, A:1500 };
-  const max    = maxMap[cls] ?? 1500;
-  state.user.licenseClass = cls;
-  state.user.txPowerW     = max;
-  state.user.qrpMode      = false;
-  const sl  = document.getElementById('pwr-slider');
-  const tog = document.getElementById('qrp-toggle');
-  if (sl)  { sl.max = max; sl.value = max; }
-  if (tog) tog.checked = false;
-  updatePowerDisplay(max);
-  const midEl = document.getElementById('pwr-mid');
-  const maxEl = document.getElementById('pwr-max-label');
-  if (midEl) midEl.textContent = cls==='C'?'15W':cls==='B'?'50W':'400W';
-  if (maxEl) maxEl.textContent = max+'W';
-  persistUser();
-  window._pwEvaluate();
-  showToast('Class ' + cls + ' — ' + max + 'W', 'success');
-};
-
-window._pwUpdatePower = function(v) {
-  v = parseInt(v);
-  if (!v || v < 1) return;
-  state.user.txPowerW = v;
-  if (v > 5 && state.user.qrpMode) {
-    state.user.qrpMode = false;
-    const tog = document.getElementById('qrp-toggle');
-    if (tog) tog.checked = false;
+// ── ICS export ──
+function exportICS(id) {
+  const w = S.watches.find(x => x.id===id);
+  if (!w || !w.nextWin) { toast('No upcoming window','warn'); return; }
+  const start = new Date(w.nextWin.time);
+  const end   = new Date(start.getTime()+60*60*1000);
+  const tz    = S.user.timezone || 'Europe/Brussels';
+  function fmtLocal2(d) {
+    const p = new Intl.DateTimeFormat('en',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).formatToParts(d);
+    const m={};p.forEach(x=>m[x.type]=x.value);
+    return `${m.year}${m.month}${m.day}T${m.hour}${m.minute}${m.second}`;
   }
-  updatePowerDisplay(v);
-  persistUser();
-  window._pwEvaluate();
-};
+  function fmtZ(d){return d.toISOString().replace(/[-:]/g,'').split('.')[0]+'Z';}
+  const ics=[
+    'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//PropagationWatch//ON3VZ//EN',
+    'CALSCALE:GREGORIAN','METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:${id}-${start.getTime()}@pw`,
+    `DTSTAMP:${fmtZ(new Date())}`,
+    `DTSTART;TZID=${tz}:${fmtLocal2(start)}`,
+    `DTEND;TZID=${tz}:${fmtLocal2(end)}`,
+    `SUMMARY:${w.label} — ${w.band} ${w.mode} — ${fmtUTC(start)} / ${fmtLocal(start)} local`,
+    `DESCRIPTION:Reliability: ${Math.round(w.nextWin.rel*100)}%\\nBearing: ${w.az}°\\nDistance: ${w.dist} km`,
+    'BEGIN:VALARM','TRIGGER:-PT15M','ACTION:DISPLAY',`DESCRIPTION:${w.label} in 15 min`,'END:VALARM',
+    'END:VEVENT','END:VCALENDAR'
+  ].join('\r\n');
+  const blob=new Blob([ics],{type:'text/calendar'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=w.label+'.ics';a.click();
+  toast('Calendar file downloaded','ok');
+}
 
-window._pwToggleQRP = function(on) {
-  const defMap = { C:25, B:100, A:100 };
-  state.user.qrpMode  = on;
-  state.user.txPowerW = on ? 5 : (defMap[state.user.licenseClass ?? 'A']);
-  const sl = document.getElementById('pwr-slider');
-  if (sl) { sl.value = state.user.txPowerW; }
-  updatePowerDisplay(state.user.txPowerW);
-  persistUser();
-  window._pwEvaluate();
-};
+// ── Timeline ──
+function renderTimeline() {
+  const svg  = document.getElementById('timeline-svg');
+  const wrap = document.getElementById('timeline-scroll');
+  if (!svg) return;
+  const W    = Math.max(600, wrap.clientWidth || 600);
+  const watches = S.watches;
+  const rows = Math.max(1, watches.length);
+  const RH=18, GAP=3, LW=40, AH=14, H=rows*(RH+GAP)+AH+8;
+  svg.setAttribute('viewBox','0 0 '+W+' '+H);
+  svg.setAttribute('width', W);
+  svg.setAttribute('height',H);
+  const now   = new Date();
+  const start = new Date(now); start.setMinutes(0,0,0);
+  const STEP  = 15*60*1000, BLOCKS=96;
+  const xs    = (W-LW)/(BLOCKS*STEP);
+  const xnow  = LW+(now-start)*xs;
+  let html    = `<rect width="${W}" height="${H}" fill="var(--bg1)" rx="3"/>`;
 
-window._pwToggleTheme = function(light) {
-  state.user.theme = light ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', state.user.theme);
-  persistUser();
-};
+  // Greyline
+  if (S.user.lat) {
+    for (let i=0;i<BLOCKS;i++) {
+      const t=new Date(start.getTime()+i*STEP);
+      const e=sunElev(S.user.lat,S.user.lon,t);
+      if(e>=-6&&e<=6){const x=LW+i*STEP*xs;const bw=STEP*xs;
+        html+=`<rect x="${x}" y="0" width="${bw}" height="${H-AH}" fill="#BA7517" opacity=".12"/>`;}
+    }
+  }
 
-window._pwChangeLang = function(lang) {
-  state.user.lang = lang;
-  setLang(lang);
-  persistUser();
-  showToast(lang === 'nl' ? 'Taal: Nederlands' : 'Language: English', 'info');
-};
+  // Hour marks
+  for(let h=0;h<=24;h+=3){
+    const x=LW+h*3600000*xs;
+    const utcH=(start.getUTCHours()+h)%24;
+    html+=`<line x1="${x}" y1="0" x2="${x}" y2="${H-AH}" stroke="var(--bdr2)" stroke-width=".5"/>`;
+    html+=`<text x="${x}" y="${H-1}" fill="var(--tx3)" font-size="9" font-family="monospace" text-anchor="middle">${String(utcH).padStart(2,'0')}h</text>`;
+  }
 
-window._pwSaveLocation = function() {
-  const val = (document.getElementById('grid-input')?.value ?? '').trim().toUpperCase();
-  if (!val) { showToast('Enter a grid square (e.g. JO20ev)', 'warn'); return; }
-  import('./utils.js').then(({ gridToLatLon }) => {
+  // Watch rows
+  watches.forEach((w,i)=>{
+    const y=i*(RH+GAP);
+    html+=`<text x="2" y="${y+RH-5}" fill="var(--tx3)" font-size="9" font-family="monospace">${w.band}</text>`;
+    for(let bi=0;bi<BLOCKS;bi++){
+      const t=new Date(start.getTime()+bi*STEP);
+      const r=calcRel(w.band,w.mode,w.dist,S.user.lat,S.user.lon,w.lat,w.lon,w.pw||S.user.txPowerW,t);
+      const pct=r.rel;
+      const c=pct>=.7?'#1D9E75':pct>=.4?'#EF9F27':pct>=.1?'#E24B4A':'#313754';
+      const bx=LW+bi*STEP*xs, bw=Math.max(1,STEP*xs-.5);
+      html+=`<rect x="${bx}" y="${y+1}" width="${bw}" height="${RH-2}" fill="${c}" opacity=".75" rx="1"/>`;
+    }
+    html+=`<text x="${LW+4}" y="${y+13}" fill="var(--tx1)" font-size="8" font-family="monospace" opacity=".6">${w.label}</text>`;
+  });
+
+  // Now line
+  html+=`<line x1="${xnow}" y1="0" x2="${xnow}" y2="${H-AH}" stroke="var(--tx1)" stroke-width="1.5" stroke-dasharray="3,3" opacity=".5"/>`;
+  html+=`<text x="${Math.min(xnow+3,W-24)}" y="10" fill="var(--tx3)" font-size="8" font-family="monospace">now</text>`;
+  svg.innerHTML=html;
+}
+
+// ── Setup wizard ──
+const SUGG=[
+  {entity:'W',   name:'North America',   grid:'FN41',lat:42.4,  lon:-71.1},
+  {entity:'SM',  name:'Scandinavia',     grid:'JP90',lat:60.2,  lon:18.0 },
+  {entity:'EA',  name:'South Europe',    grid:'IM99',lat:40.4,  lon:-3.7 },
+  {entity:'JA',  name:'Japan',           grid:'PM96',lat:36.2,  lon:138.3},
+  {entity:'VK',  name:'Australia',       grid:'QF22',lat:-33.9, lon:151.2},
+  {entity:'ZL',  name:'New Zealand',     grid:'RF70',lat:-36.9, lon:174.8},
+  {entity:'CU',  name:'Azores',          grid:'HM67',lat:37.7,  lon:-25.7},
+  {entity:'PY',  name:'Brazil',          grid:'GG66',lat:-15.8, lon:-47.9},
+  {entity:'VP8', name:'Falkland Islands',grid:'GD17',lat:-51.7, lon:-57.9},
+  {entity:'ZS',  name:'South Africa',    grid:'KG33',lat:-25.8, lon:28.2 },
+];
+let _selTarget = null, _setupStep = 1;
+
+function renderSetup() {
+  _setupStep = S.user.configured ? 2 : 1;
+  _selTarget = null;
+  renderSetupStep();
+}
+
+function renderSetupStep() {
+  const el = document.getElementById('setup-body');
+  if (!el) return;
+  if (_setupStep === 1) renderStep1(el);
+  else renderStep2(el);
+}
+
+function renderStep1(el) {
+  el.innerHTML = `
+    <div class="prog-bar"><div class="prog-dot active"></div><div class="prog-dot"></div><div class="prog-dot"></div></div>
+    <div class="setup-title">Your location</div>
+    <div class="setup-sub">Enter your callsign or grid square. Used for D-layer, greyline and path calculations.</div>
+    <div class="field">
+      <label>Callsign or grid square</label>
+      <input id="s-loc" placeholder="e.g. ON3VZ or JO20ev" autocapitalize="characters"
+             value="${S.user.callsign||S.user.grid||''}" oninput="hintLoc(this.value)"/>
+      <div class="field-hint" id="loc-hint">${S.user.grid?'Current: '+S.user.grid:''}</div>
+    </div>
+    <button class="btn btn-pri" onclick="saveLoc()">Continue →</button>
+    ${S.user.configured?'<button class="setup-skip" onclick="goHome()">Cancel</button>':''}`;
+}
+
+function hintLoc(v) {
+  const h = document.getElementById('loc-hint');
+  if (!v) { h.textContent=''; return; }
+  if (/^[A-Ra-r]{2}\d{2}([a-xA-X]{2})?$/.test(v)) {
+    try { const ll=gridToLL(v); h.textContent='Grid '+v.toUpperCase()+' → '+ll.lat.toFixed(2)+'°N '+ll.lon.toFixed(2)+'°E'; }
+    catch(e){ h.textContent=''; }
+  } else { h.textContent = v.length>1 ? 'Callsign recognised — grid will be estimated from prefix' : ''; }
+}
+
+function saveLoc() {
+  const val = (document.getElementById('s-loc')?.value||'').trim().toUpperCase();
+  if (!val) { toast('Enter a callsign or grid square','warn'); return; }
+  if (/^[A-Ra-r]{2}\d{2}([a-xA-X]{2})?$/.test(val)) {
     try {
-      const { lat, lon } = gridToLatLon(val);
-      state.user.grid = val;
-      state.user.lat  = lat;
-      state.user.lon  = lon;
-      persistUser();
-      showToast('Location saved — ' + val, 'success');
-      window._pwEvaluate();
-    } catch(e) { showToast('Invalid grid square', 'error'); }
-  });
-};
-
-window._pwTestAPI = async function() {
-  const { fetchNOAA, testAllEndpoints } = await import('./noaa.js');
-  const { renderApiPanel } = await import('./settings.js');
-  showToast('Testing API…', 'info');
-  await testAllEndpoints();
-  const ok = await fetchNOAA();
-  renderApiPanel();
-  const kp  = state.propagation.kp?.toFixed(2) ?? '—';
-  const sfi = state.propagation.sfi ?? '—';
-  if (state.connections.noaaOk) {
-    showToast('✅ NOAA OK — Kp ' + kp + ' · SFI ' + sfi, 'success');
+      const ll = gridToLL(val);
+      S.user.grid = val; S.user.lat = ll.lat; S.user.lon = ll.lon;
+    } catch(e) { toast('Invalid grid square','err'); return; }
   } else {
-    showToast('❌ NOAA failed — check settings panel', 'error');
+    // Prefix lookup - use centroid estimates
+    const prefixMap = {
+      'ON':{lat:50.5,lon:4.5,grid:'JO20'},'PA':{lat:52.1,lon:5.3,grid:'JO22'},
+      'DL':{lat:51.2,lon:10.5,grid:'JO51'},'F':{lat:46.0,lon:2.4,grid:'JN03'},
+      'G':{lat:51.5,lon:-.1,grid:'IO91'},'EA':{lat:40.4,lon:-3.7,grid:'IM99'},
+    };
+    const pfx = Object.keys(prefixMap).sort((a,b)=>b.length-a.length)
+                      .find(p=>val.startsWith(p));
+    if (pfx) {
+      const d=prefixMap[pfx];
+      S.user.callsign=val; S.user.lat=d.lat; S.user.lon=d.lon; S.user.grid=d.grid;
+    } else {
+      S.user.callsign=val;
+      if (!S.user.lat) { toast('Prefix not recognised — please enter a grid square','warn'); return; }
+    }
+  }
+  saveUser();
+  _setupStep=2; renderSetupStep();
+}
+
+function renderStep2(el) {
+  el.innerHTML = `
+    <div class="prog-bar"><div class="prog-dot done"></div><div class="prog-dot active"></div><div class="prog-dot"></div></div>
+    <div class="setup-title">Target station</div>
+    <div class="setup-sub">Choose a region or enter a callsign prefix.</div>
+    <div class="sugg-grid" id="sugg-grid"></div>
+    <div class="field">
+      <label>Or enter manually</label>
+      <input id="s-dx" placeholder="e.g. VP8, JA1ZZZ" autocapitalize="characters" oninput="hintDX(this.value)"/>
+      <div class="field-hint" id="dx-hint"></div>
+    </div>
+    <div class="field-grid">
+      <div class="field"><label>Band</label>
+        <select id="s-band">${['40m','20m','17m','15m','10m','80m','30m','6m'].map(b=>`<option>${b}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>Mode</label>
+        <select id="s-mode">${['FT8','CW','SSB','FT4','MSK144'].map(m=>`<option>${m}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="field">
+      <label>Alert at reliability ≥ <span id="thr-lbl">60%</span></label>
+      <input type="range" min="10" max="90" step="5" value="60" style="width:100%"
+             oninput="document.getElementById('thr-lbl').textContent=this.value+'%'"/>
+    </div>
+    <button class="btn btn-pri" onclick="createWatch2()">Create watch →</button>
+    <button class="setup-skip" onclick="goHome()">Cancel</button>`;
+
+  // Suggestion buttons
+  const grid = document.getElementById('sugg-grid');
+  SUGG.forEach(s => {
+    const btn = document.createElement('button');
+    btn.className='sugg-btn';
+    const sDist = S.user.lat ? haversine(S.user.lat,S.user.lon,s.lat,s.lon) : null;
+    const sAz   = S.user.lat ? bearing(S.user.lat,S.user.lon,s.lat,s.lon) : null;
+    const sInfo = sDist ? sDist.toLocaleString()+' km · '+sAz+'°' : s.grid;
+    btn.innerHTML=`<div class="sugg-pre">${s.entity}</div><div class="sugg-name">${s.name}</div><div class="sugg-dist">${sInfo}</div>`;
+    btn.onclick=()=>{
+      _selTarget={...s, distNum:sDist, azNum:sAz};
+      document.getElementById('s-dx').value=s.entity;
+      document.getElementById('dx-hint').textContent=s.name+' · '+s.grid+(sDist?' · '+sDist.toLocaleString()+' km · '+sAz+'°':'');
+      grid.querySelectorAll('.sugg-btn').forEach(b=>b.classList.remove('sel'));
+      btn.classList.add('sel');
+    };
+    grid.appendChild(btn);
+  });
+}
+
+const DXCC_SIMPLE = {
+  'W':{name:'USA',lat:42.4,lon:-71.1,grid:'FN41'},'K':{name:'USA',lat:42.4,lon:-71.1,grid:'FN41'},
+  'VE':{name:'Canada',lat:45.5,lon:-73.6,grid:'FN25'},'JA':{name:'Japan',lat:36.2,lon:138.3,grid:'PM96'},
+  'VK':{name:'Australia',lat:-33.9,lon:151.2,grid:'QF22'},'ZL':{name:'New Zealand',lat:-36.9,lon:174.8,grid:'RF70'},
+  'SM':{name:'Sweden',lat:59.3,lon:18.1,grid:'JP90'},'LA':{name:'Norway',lat:59.9,lon:10.7,grid:'JP53'},
+  'OH':{name:'Finland',lat:60.2,lon:24.9,grid:'KP20'},'OZ':{name:'Denmark',lat:55.7,lon:12.6,grid:'JO65'},
+  'EA':{name:'Spain',lat:40.4,lon:-3.7,grid:'IM99'},'I':{name:'Italy',lat:41.9,lon:12.5,grid:'JN61'},
+  'SV':{name:'Greece',lat:38.0,lon:23.7,grid:'KM17'},'VP8':{name:'Falkland Islands',lat:-51.7,lon:-57.9,grid:'GD17'},
+  'PY':{name:'Brazil',lat:-15.8,lon:-47.9,grid:'GG66'},'ZS':{name:'South Africa',lat:-25.8,lon:28.2,grid:'KG33'},
+  'CU':{name:'Azores',lat:37.7,lon:-25.7,grid:'HM67'},'UA':{name:'Russia',lat:55.8,lon:37.6,grid:'KO85'},
+  'BY':{name:'China',lat:39.9,lon:116.4,grid:'PL03'},'VK9':{name:'Christmas Island',lat:-10.5,lon:105.7,grid:'OI99'},
+};
+function lookupDX(val) {
+  const v = val.toUpperCase();
+  for (const len of [3,2,1]) {
+    const pfx = v.slice(0,len);
+    if (DXCC_SIMPLE[pfx]) return {...DXCC_SIMPLE[pfx], entity:pfx};
+  }
+  return null;
+}
+
+function hintDX(v) {
+  const h = document.getElementById('dx-hint');
+  _selTarget = null;
+  if (!v) { h.textContent=''; return; }
+  const e = lookupDX(v);
+  if (e) {
+    const u2 = S.user;
+    const distN = u2.lat ? haversine(u2.lat,u2.lon,e.lat,e.lon) : null;
+    const azN   = u2.lat ? bearing(u2.lat,u2.lon,e.lat,e.lon) : null;
+    _selTarget = {...e, entity:v.toUpperCase(), distNum:distN, azNum:azN};
+    h.textContent = e.name+' · '+e.grid+(distN?' · '+distN.toLocaleString()+' km · '+azN+'°':'');
+  } else {
+    h.textContent = v.length>1 ? 'Prefix not recognised' : '';
+  }
+}
+
+function createWatch2() {
+  const target = _selTarget;
+  if (!target?.lat) { toast('Please select a target station first','warn'); return; }
+  const band = document.getElementById('s-band')?.value||'20m';
+  const mode = document.getElementById('s-mode')?.value||'FT8';
+  const thr  = parseInt(document.querySelector('#setup-body input[type=range]')?.value||60);
+  const u    = S.user;
+
+  if (!u.lat) { toast('Please set your location first','err'); _setupStep=1; renderSetupStep(); return; }
+
+  const dist  = target.distNum || haversine(u.lat,u.lon,target.lat,target.lon);
+  const az    = target.azNum   || bearing(u.lat,u.lon,target.lat,target.lon);
+  const azlp  = Math.round((az+180)%360);
+
+  const w = {
+    id:        crypto.randomUUID(),
+    label:     target.entity,
+    entity:    target.entity,
+    name:      target.name||target.entity,
+    lat:       target.lat,
+    lon:       target.lon,
+    grid:      target.grid||'',
+    dist, az, azlp,
+    band, mode,
+    threshold: thr,
+    pw:        null, // use global setting
+    rel:0, base:0, status:'WAIT', nextWin:null,
+  };
+  evalWatch(w);
+  S.watches.push(w);
+  saveWatches();
+  S.user.configured = true;
+  saveUser();
+  toast('Watch added: '+w.label+' '+band+' '+mode,'ok');
+  goHome();
+}
+
+// ── Settings UI ──
+function syncSettingsUI() {
+  const lc = S.user.licenseClass||'A';
+  const pw = S.user.txPowerW||100;
+  ['A','B','C'].forEach(c=>{
+    const b=document.getElementById('lic-'+c);
+    if(b) b.classList.toggle('active',c===lc);
+  });
+  const maxMap={C:25,B:100,A:1500};
+  const max=maxMap[lc]||1500;
+  const sl=document.getElementById('pwr-slider');
+  if(sl){sl.max=max;sl.value=Math.min(pw,max);}
+  updatePwrDisplay(Math.min(pw,max),lc);
+  const q=document.getElementById('qrp-tog');
+  const th=document.getElementById('theme-tog');
+  const lg=document.getElementById('lang-sel');
+  const gi=document.getElementById('grid-inp');
+  if(q)  q.checked  = !!S.user.qrpMode;
+  if(th) th.checked = S.user.theme==='light';
+  if(lg) lg.value   = S.user.lang||'en';
+  if(gi) gi.value   = S.user.grid||'';
+}
+
+function updatePwrDisplay(v,lc) {
+  v=parseInt(v)||100;
+  lc=lc||S.user.licenseClass||'A';
+  const maxMap={C:25,B:100,A:1500};
+  const vEl=document.getElementById('pwr-val');
+  const dbEl=document.getElementById('pwr-db');
+  const hEl=document.getElementById('pwr-hint');
+  const midEl=document.getElementById('pwr-mid');
+  const maxEl=document.getElementById('pwr-max');
+  if(vEl) vEl.textContent=v+'W';
+  if(dbEl){const db=v===100?0:10*Math.log10(v/100);dbEl.textContent=v===100?'(ref 100W)':`(${db>0?'+':''}${db.toFixed(1)} dB vs 100W)`;}
+  if(hEl){
+    if(v<=5) hEl.textContent='QRP ≤5W — only strong paths viable.';
+    else if(v<=25) hEl.textContent='Class C — significant penalty on marginal paths.';
+    else if(v<100) hEl.textContent=v+'W — slight reduction vs 100W.';
+    else if(v===100) hEl.textContent='Reference — no correction applied.';
+    else hEl.textContent=v+'W — reliability slightly boosted.';
+  }
+  if(midEl) midEl.textContent=lc==='C'?'15W':lc==='B'?'50W':'400W';
+  if(maxEl) maxEl.textContent=(maxMap[lc]||1500)+'W';
+}
+
+function setLicClass(cls) {
+  const maxMap={C:25,B:100,A:1500};
+  const max=maxMap[cls]||1500;
+  S.user.licenseClass=cls;
+  S.user.txPowerW=max;
+  S.user.qrpMode=false;
+  ['A','B','C'].forEach(c=>{
+    const b=document.getElementById('lic-'+c);
+    if(b) b.classList.toggle('active',c===cls);
+  });
+  const sl=document.getElementById('pwr-slider');
+  const q=document.getElementById('qrp-tog');
+  if(sl){sl.max=max;sl.value=max;}
+  if(q) q.checked=false;
+  updatePwrDisplay(max,cls);
+  saveUser();
+  evalAll();
+  toast('Class '+cls+' — '+max+'W','ok');
+}
+
+function setPower(v) {
+  v=parseInt(v)||100;
+  S.user.txPowerW=v;
+  if(v>5&&S.user.qrpMode){S.user.qrpMode=false;const q=document.getElementById('qrp-tog');if(q)q.checked=false;}
+  updatePwrDisplay(v);
+  saveUser();
+  evalAll();
+}
+
+function setQRP(on) {
+  const defMap={C:25,B:100,A:100};
+  S.user.qrpMode=on;
+  S.user.txPowerW=on?5:(defMap[S.user.licenseClass||'A']);
+  const sl=document.getElementById('pwr-slider');
+  if(sl){sl.value=S.user.txPowerW;}
+  updatePwrDisplay(S.user.txPowerW);
+  saveUser();
+  evalAll();
+}
+
+function setTheme(light) {
+  S.user.theme=light?'light':'dark';
+  document.documentElement.setAttribute('data-theme',S.user.theme);
+  saveUser();
+}
+
+const STRINGS = {
+  en: {
+    good:'● GOOD WINDOW', soon:'◑ OPENING SOON', wait:'○ WAITING', poor:'✕ CLOSED',
+    next:'Next:', until:'Until ~', overview:'Overview', settings:'Settings',
+    quickCheck:'Quick check', addWatch:'+ Watch', noWatches:'No watches yet',
+    addFirst:'+ Add watch', location:'Location not set',
+    locationHint:'Go to Settings → Location to enter your grid square',
+    setAlarm:'Set alarm', exportCal:'Export .ics',
+    alarmSet:'Alarm set — ', windowOpens:' — when window opens',
+    saved:'saved', classSet:'Class',
+  },
+  nl: {
+    good:'● GOED MOMENT', soon:'◑ OPENT BINNENKORT', wait:'○ WACHTEN', poor:'✕ GESLOTEN',
+    next:'Volgend:', until:'Tot ~', overview:'Overzicht', settings:'Instellingen',
+    quickCheck:'Snelle check', addWatch:'+ Watch', noWatches:'Nog geen watches',
+    addFirst:'+ Voeg toe', location:'Locatie niet ingesteld',
+    locationHint:'Ga naar Instellingen → Locatie om je grid square in te vullen',
+    setAlarm:'Alarm instellen', exportCal:'Exporteer .ics',
+    alarmSet:'Alarm ingesteld — ', windowOpens:' — zodra venster opent',
+    saved:'opgeslagen', classSet:'Klasse',
   }
 };
+function T(key) { return (STRINGS[S.user.lang||'en']||STRINGS.en)[key] || key; }
 
-window._pwSaveCfg = function() {
-  import('./noaa.js').then(({ NOAA_CONFIG }) => {
-    const t   = parseFloat(document.getElementById('cfg-timeout')?.value);
-    const p   = parseInt(document.getElementById('cfg-poll')?.value);
-    const sfi = parseInt(document.getElementById('cfg-fallback-sfi')?.value);
-    const kp  = parseFloat(document.getElementById('cfg-fallback-kp')?.value);
-    if (!isNaN(t) && t>=3)   NOAA_CONFIG.timeout_ms    = t*1000;
-    if (!isNaN(p) && p>=1)   NOAA_CONFIG.poll_interval = p;
-    if (!isNaN(sfi)&& sfi>0) NOAA_CONFIG.fallback_sfi  = sfi;
-    if (!isNaN(kp) && kp>=0) NOAA_CONFIG.fallback_kp   = kp;
-    try { localStorage.setItem('pw_noaa_config', JSON.stringify({
-      timeout_ms:NOAA_CONFIG.timeout_ms, poll_interval:NOAA_CONFIG.poll_interval,
-      fallback_sfi:NOAA_CONFIG.fallback_sfi, fallback_kp:NOAA_CONFIG.fallback_kp }));
-    } catch {}
-    showToast('Config saved', 'success');
-  });
+function saveLang(lang) {
+  S.user.lang=lang;
+  saveUser();
+  // Update nav labels
+  const navLabels = document.querySelectorAll('.nav-tab');
+  if (navLabels[0]) navLabels[0].childNodes[navLabels[0].childNodes.length-1].textContent = T('overview');
+  if (navLabels[2]) navLabels[2].childNodes[navLabels[2].childNodes.length-1].textContent = T('settings');
+  // Re-render watch list with new language
+  renderWatchList();
+  toast(lang==='nl'?'Taal: Nederlands':'Language: English','info');
+}
+
+function saveLocation() {
+  const val=(document.getElementById('grid-inp')?.value||'').trim().toUpperCase();
+  if(!val){toast('Enter a grid square (e.g. JO20ev)','warn');return;}
+  try{
+    const ll=gridToLL(val);
+    S.user.grid=val;S.user.lat=ll.lat;S.user.lon=ll.lon;
+    saveUser();
+    toast('Location saved — '+val,'ok');
+    evalAll();
+  }catch(e){toast('Invalid grid square','err');}
+}
+
+// ── API test ──
+const apiSt={kp:{ok:null,val:null,err:null,ms:null},sfi:{ok:null,val:null,err:null,ms:null},scales:{ok:null,val:null,err:null,ms:null}};
+const apiURLs={
+  kp:'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json',
+  sfi:'https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json',
+  scales:'https://services.swpc.noaa.gov/json/noaa-scales.json',
 };
+async function doTestAPI() {
+  const btn=document.getElementById('api-test-btn');
+  const box=document.getElementById('api-status-box');
+  if(btn) btn.textContent='⏳ Testing…';
+  box.textContent='Testing endpoints…';
 
-/* ── Global error handler ── */
-window.addEventListener('unhandledrejection', e => {
-  console.error('Unhandled:', e.reason);
-  showToast('Something went wrong — data is safe', 'warn');
+  async function testOne(key,url,parse) {
+    const t0=Date.now();
+    try {
+      const r=await fetch(url);
+      const d=await r.json();
+      const v=parse(d);
+      apiSt[key]={ok:true,val:v,err:null,ms:Date.now()-t0};
+    } catch(e) {
+      apiSt[key]={ok:false,val:null,err:e.message,ms:Date.now()-t0};
+    }
+    renderAPIEndpoints();
+  }
+
+  await testOne('kp',apiURLs.kp,d=>{
+    for(let i=d.length-1;i>=0;i--){const v=parseFloat(d[i].Kp||d[i].kp);if(!isNaN(v))return v;}
+    throw new Error('No Kp found');
+  });
+  await testOne('sfi',apiURLs.sfi,d=>{
+    // NOAA field names vary: try all known variants
+    const fields=['f10.7','observed-flux','flux','sfi','f10','solar-flux'];
+    for(let i=d.length-1;i>=0;i--){
+      for(const f of fields){
+        const v=parseFloat(d[i][f]);
+        if(!isNaN(v)&&v>50&&v<500)return v; // SFI is always 50-300
+      }
+    }
+    // Last resort: find any number in 50-300 range in last item
+    const last=d[d.length-1];
+    for(const k of Object.keys(last)){const v=parseFloat(last[k]);if(!isNaN(v)&&v>50&&v<500)return v;}
+    throw new Error('No SFI found — fields: '+Object.keys(d[d.length-1]||{}).join(', '));
+  });
+  await testOne('scales',apiURLs.scales,d=>{
+    // noaa-scales.json geeft {"G":{"Scale":"1",...},...}
+    const g=parseInt(d?.G?.Scale||d?.Geomagnetic?.Scale||0);
+    return isNaN(g)?0:g;
+  });
+
+  const anyOk = apiSt.kp.ok||apiSt.sfi.ok;
+  if(anyOk) {
+    if(apiSt.kp.ok)  S.prop.kp=apiSt.kp.val;
+    if(apiSt.sfi.ok) S.prop.sfi=apiSt.sfi.val;
+    if(apiSt.scales.ok) S.prop.gScale=apiSt.scales.val;
+    S.prop.fetchedAt=new Date().toISOString();
+    saveNoaa();
+    updateStatusBar();
+    evalAll();
+    box.innerHTML=`<span style="color:var(--good-tx)">✅ NOAA connected — Kp ${apiSt.kp.val?.toFixed(2)||'—'} · SFI ${apiSt.sfi.val||'—'}</span>`;
+    toast('✅ NOAA OK — Kp '+(apiSt.kp.val?.toFixed(2)||'—')+' · SFI '+(apiSt.sfi.val||'—'),'ok');
+  } else {
+    box.innerHTML='<span style="color:var(--bad-tx)">❌ All NOAA endpoints failed</span>';
+    toast('❌ NOAA failed','err');
+  }
+  if(btn) btn.textContent='🔌 Test API';
+}
+
+function renderAPIEndpoints() {
+  const el=document.getElementById('api-endpoints');
+  if(!el) return;
+  const labels={kp:'Kp index',sfi:'Solar Flux Index',scales:'Storm scales'};
+  el.innerHTML=Object.entries(apiSt).map(([k,st])=>{
+    const icon=st.ok===true?'✅':st.ok===false?'❌':'○';
+    const col=st.ok===true?'var(--good-tx)':st.ok===false?'var(--bad-tx)':'var(--tx2)';
+    const val=st.val!=null?` <b>${typeof st.val==='number'?st.val.toFixed(k==='kp'?2:0):st.val}</b>`:'';
+    const lat=st.ms!=null?` · ${st.ms}ms`:'';
+    const err=st.err?`<div class="api-err">${st.err}</div>`:'';
+    return `<div class="api-row">
+      <div class="api-row-top">
+        <span style="color:${col}">${icon} ${labels[k]||k}${val}${lat}</span>
+      </div>
+      ${err}
+      <div class="api-url">${apiURLs[k].replace('https://services.swpc.noaa.gov','')}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Boot ──
+document.addEventListener('DOMContentLoaded', function() {
+  // Apply saved theme
+  document.documentElement.setAttribute('data-theme', S.user.theme||'dark');
+
+  // Route
+  if (!S.user.configured) {
+    showScreen('setup'); renderSetup();
+  } else {
+    showScreen('home'); renderHome(); evalAll();
+  }
+
+  // Fetch live data
+  fetchNoaa();
+
+  // Auto-refresh every 5 min
+  setInterval(fetchNoaa, 5*60*1000);
+  setInterval(()=>{
+    const e=document.getElementById('tl-now');
+    if(e) e.textContent=new Date().toUTCString().slice(17,22)+' UTC';
+  }, 60000);
+
+  // Register SW
+  if('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(function(e){ console.warn('SW:',e); });
+  }
 });
-
-// Settings init is handled via window._pwInitSettings in nav onclick
-});
-
-window.addEventListener('online',  () => { state.connections.offline = false; window._pwFetchNOAA(); });
-window.addEventListener('offline', () => { state.connections.offline = true; showToast('Offline — using cached data', 'warn'); });
