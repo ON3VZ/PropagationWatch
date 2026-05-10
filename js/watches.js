@@ -87,13 +87,18 @@ export function evaluateWatch(watch, at = new Date()) {
   const rxElev = getSolarElevation(watch.lat, watch.lon, at);
   const pw     = watch.txPowerOverride ?? state.user.txPowerW ?? 100;
 
+  const midLat   = (uLat + watch.lat) / 2;
+  const midLon   = (uLon + watch.lon) / 2;
+  const midElev  = getSolarElevation(midLat, midLon, at);
+
   const result = calcReliability({
-    band:      watch.band,
-    mode:      watch.mode,
-    distKm:    watch.distanceKm,
-    txSunElev: txElev,
-    rxSunElev: rxElev,
-    txPowerW:  pw,
+    band:       watch.band,
+    mode:       watch.mode,
+    distKm:     watch.distanceKm,
+    txSunElev:  txElev,
+    rxSunElev:  rxElev,
+    midSunElev: midElev,
+    txPowerW:   pw,
   });
 
   watch.reliability = result.reliability;
@@ -130,13 +135,17 @@ function findNextWindow(watch) {
     const t2  = new Date(Date.now() + i * STEP);
     const txE = getSolarElevation(uLat, uLon, t2);
     const rxE = getSolarElevation(watch.lat, watch.lon, t2);
+    const midLat = (uLat + watch.lat) / 2;
+    const midLon = (uLon + watch.lon) / 2;
+    const midE   = getSolarElevation(midLat, midLon, t2);
     const r   = calcReliability({
-      band:      watch.band,
-      mode:      watch.mode,
-      distKm:    watch.distanceKm,
-      txSunElev: txE,
-      rxSunElev: rxE,
-      txPowerW:  pw,
+      band:       watch.band,
+      mode:       watch.mode,
+      distKm:     watch.distanceKm,
+      txSunElev:  txE,
+      rxSunElev:  rxE,
+      midSunElev: midE,
+      txPowerW:   pw,
     });
 
     // Track first moment above threshold

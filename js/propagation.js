@@ -111,6 +111,55 @@ export function calcKpDegradation(band, kp) {
 }
 
 /**
+ * F2 ionospheric gradient factor for high bands (20m and above).
+ *
+ * F2 propagation on 20m–6m is most efficient when TX and RX are in
+ * DIFFERENT day/night states — one side energises the F2 layer while
+ * the other benefits from low absorption. This is why 20m to W1 from
+ * Europe peaks around 22:00–06:00 UTC (EU evening/night, US afternoon/night).
+ *
+ * The effect is distance-dependent:
+ *   Short paths (<2000km): F2 works fine in full daylight — no gradient needed
+ *   Medium paths (3–6000km): gradient matters — best at day/night boundary
+ *   Long paths (>8000km): gradient is crucial — path must span the terminator
+ *
+ * @param {number} txElev  - Solar elevation at TX (degrees)
+ * @param {number} rxElev  - Solar elevation at RX (degrees)
+ * @param {number} midElev - Solar elevation at path midpoint (degrees)
+ * @param {number} distKm  - Path distance
+ * @param {string} band    - Band (only applied to 20m and above)
+ * @returns {number} Factor 0.4–1.0
+ */
+export function calcF2GradientFactor(txElev, rxElev, midElev, distKm, band) {
+  // Only applies to bands where D-layer is transparent (20m+)
+  const F2_BANDS = ['20m','17m','15m','12m','10m','6m'];
+  if (!F2_BANDS.includes(band)) return 1.0;
+
+  // Distance weight: 0 for very short, 1 for long paths
+  const distWeight = Math.min(1, Math.max(0, (distKm - 1500) / 6000));
+  if (distWeight < 0.05) return 1.0; // Short paths unaffected
+
+  // Normalise solar elevation: -1 (deep night) to +1 (full day), ±20° = transition
+  function norm(e) { return Math.max(-1, Math.min(1, e / 20)); }
+  const tx  = norm(txElev);
+  const rx  = norm(rxElev);
+  const mid = norm(midElev);
+
+  // End-point gradient: maximum when one is day (+1) and other is night (-1)
+  const endGradient = Math.abs(tx - rx) / 2;  // 0..1
+
+  // Midpoint penalty: bright midpoint reduces F2 efficiency on long paths
+  const midDay     = Math.max(0, mid);
+  const midPenalty = midDay * midDay * 0.2 * distWeight;
+
+  // Dynamic floor: short paths have higher floor (always some propagation)
+  const floor = 0.4 + 0.2 * (1 - distWeight);
+
+  const factor = floor + (1 - floor) * endGradient - midPenalty;
+  return Math.max(floor, Math.min(1.0, factor));
+}
+
+/**
  * Transmit power correction factor (dB-based, mode-specific SNR margin).
  * Reference: 100W. Returns 0.1–1.2.
  */
@@ -135,7 +184,7 @@ export function calcPowerFactor(txPowerW, mode) {
  *
  * @returns {{ reliability, base, powerFactor, muf }}
  */
-export function calcReliability({ band, mode, distKm, txSunElev, rxSunElev, txPowerW }) {
+export function calcReliability({ band, mode, distKm, txSunElev, rxSunElev, midSunElev, txPowerW }) {
   const { kp, sfi } = state.propagation;
   const pw       = txPowerW ?? state.user?.txPowerW ?? 100;
   const safeKp   = (kp  != null && !isNaN(kp))  ? kp  : 0;
@@ -155,6 +204,11 @@ export function calcReliability({ band, mode, distKm, txSunElev, rxSunElev, txPo
   base *= calcDlayerFactor(band, safeTxEl);
   base *= calcDlayerFactor(band, safeRxEl);
   base *= calcMultiHopFactor(band, distKm);
+
+  // F2 gradient: time-of-day variation for 20m+ based on TX/RX day-night state
+  const safeMidEl = isNaN(midSunElev) ? (safeTxEl + safeRxEl) / 2 : midSunElev;
+  base *= calcF2GradientFactor(safeTxEl, safeRxEl, safeMidEl, distKm, band);
+
   base  = Math.max(0, Math.min(0.99, base));
 
   const powerFactor = calcPowerFactor(pw, mode);

@@ -32,15 +32,21 @@ function computeWatchBlocks(watch, startMs) {
   const blocks = [];
   for (let i = 0; i < BLOCKS; i++) {
     const t = new Date(startMs + i * STEP_MS);
-    const txEl = getSolarElevation(uLat, uLon, t);
-    const rxEl = getSolarElevation(watch.lat, watch.lon, t);
+    const txEl  = getSolarElevation(uLat, uLon, t);
+    const rxEl  = getSolarElevation(watch.lat, watch.lon, t);
+    const midEl = getSolarElevation(
+      (uLat + watch.lat) / 2,
+      (uLon + watch.lon) / 2,
+      t
+    );
     const r = calcReliability({
-      band:      watch.band,
-      mode:      watch.mode,
-      distKm:    watch.distanceKm,
-      txSunElev: txEl,
-      rxSunElev: rxEl,
-      txPowerW:  pw,
+      band:       watch.band,
+      mode:       watch.mode,
+      distKm:     watch.distanceKm,
+      txSunElev:  txEl,
+      rxSunElev:  rxEl,
+      midSunElev: midEl,
+      txPowerW:   pw,
     });
     blocks.push(r.reliability);
   }
