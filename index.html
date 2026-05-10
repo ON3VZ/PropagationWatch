@@ -115,7 +115,14 @@
 
     <!-- ── Settings screen ── -->
     <section id="screen-settings" class="screen" aria-label="Settings">
-      <h2 style="font-size:var(--text-lg);font-weight:var(--weight-bold);margin-bottom:var(--space-4)">Settings</h2>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:var(--space-4)">
+        <button onclick="showScreen('home')"
+          style="background:var(--color-bg-tertiary);border:1px solid var(--color-border);
+                 border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer;
+                 display:flex;align-items:center;justify-content:center;color:var(--color-text-primary);
+                 flex-shrink:0">←</button>
+        <h2 style="font-size:var(--text-lg);font-weight:var(--weight-bold);margin:0">Settings</h2>
+      </div>
 
       <!-- Data Sources — API test -->
       <div class="card" style="margin-bottom:var(--space-4)">

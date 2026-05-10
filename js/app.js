@@ -8,7 +8,7 @@ import { initSetup, initNewWatch, setDxccData }  from './setup.js';
 import { watchWindowToICS, downloadICS }        from './export.js';
 import { t, setLang }                           from './i18n.js';
 import { showScreen, showToast }                from './ui.js';
-import { initSettings }                          from './settings.js';
+import { initSettings, syncSettingsUI, updatePowerDisplay } from './settings.js';
 import { formatUTC, formatBothTimes, formatLocal, ageMinutes } from './utils.js';
 
 /* ── Register real globals after module load ── */
@@ -391,6 +391,119 @@ window._pwFetchNOAA = function() {
     else               hint.textContent = 'High power — reliability scores are higher.';
   }
 }
+
+
+/* ── Settings handlers — registered after full boot ── */
+
+window._pwInitSettings = function() { initSettings(); };
+
+window._pwSelectLicClass = function(cls) {
+  const maxMap = { C:25, B:100, A:1500 };
+  const max    = maxMap[cls] ?? 1500;
+  state.user.licenseClass = cls;
+  state.user.txPowerW     = max;
+  state.user.qrpMode      = false;
+  const sl  = document.getElementById('pwr-slider');
+  const tog = document.getElementById('qrp-toggle');
+  if (sl)  { sl.max = max; sl.value = max; }
+  if (tog) tog.checked = false;
+  updatePowerDisplay(max);
+  const midEl = document.getElementById('pwr-mid');
+  const maxEl = document.getElementById('pwr-max-label');
+  if (midEl) midEl.textContent = cls==='C'?'15W':cls==='B'?'50W':'400W';
+  if (maxEl) maxEl.textContent = max+'W';
+  persistUser();
+  window._pwEvaluate();
+  showToast('Class ' + cls + ' — ' + max + 'W', 'success');
+};
+
+window._pwUpdatePower = function(v) {
+  v = parseInt(v);
+  if (!v || v < 1) return;
+  state.user.txPowerW = v;
+  if (v > 5 && state.user.qrpMode) {
+    state.user.qrpMode = false;
+    const tog = document.getElementById('qrp-toggle');
+    if (tog) tog.checked = false;
+  }
+  updatePowerDisplay(v);
+  persistUser();
+  window._pwEvaluate();
+};
+
+window._pwToggleQRP = function(on) {
+  const defMap = { C:25, B:100, A:100 };
+  state.user.qrpMode  = on;
+  state.user.txPowerW = on ? 5 : (defMap[state.user.licenseClass ?? 'A']);
+  const sl = document.getElementById('pwr-slider');
+  if (sl) { sl.value = state.user.txPowerW; }
+  updatePowerDisplay(state.user.txPowerW);
+  persistUser();
+  window._pwEvaluate();
+};
+
+window._pwToggleTheme = function(light) {
+  state.user.theme = light ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', state.user.theme);
+  persistUser();
+};
+
+window._pwChangeLang = function(lang) {
+  state.user.lang = lang;
+  setLang(lang);
+  persistUser();
+  showToast(lang === 'nl' ? 'Taal: Nederlands' : 'Language: English', 'info');
+};
+
+window._pwSaveLocation = function() {
+  const val = (document.getElementById('grid-input')?.value ?? '').trim().toUpperCase();
+  if (!val) { showToast('Enter a grid square (e.g. JO20ev)', 'warn'); return; }
+  import('./utils.js').then(({ gridToLatLon }) => {
+    try {
+      const { lat, lon } = gridToLatLon(val);
+      state.user.grid = val;
+      state.user.lat  = lat;
+      state.user.lon  = lon;
+      persistUser();
+      showToast('Location saved — ' + val, 'success');
+      window._pwEvaluate();
+    } catch(e) { showToast('Invalid grid square', 'error'); }
+  });
+};
+
+window._pwTestAPI = async function() {
+  const { fetchNOAA, testAllEndpoints } = await import('./noaa.js');
+  const { renderApiPanel } = await import('./settings.js');
+  showToast('Testing API…', 'info');
+  await testAllEndpoints();
+  const ok = await fetchNOAA();
+  renderApiPanel();
+  const kp  = state.propagation.kp?.toFixed(2) ?? '—';
+  const sfi = state.propagation.sfi ?? '—';
+  if (state.connections.noaaOk) {
+    showToast('✅ NOAA OK — Kp ' + kp + ' · SFI ' + sfi, 'success');
+  } else {
+    showToast('❌ NOAA failed — check settings panel', 'error');
+  }
+};
+
+window._pwSaveCfg = function() {
+  import('./noaa.js').then(({ NOAA_CONFIG }) => {
+    const t   = parseFloat(document.getElementById('cfg-timeout')?.value);
+    const p   = parseInt(document.getElementById('cfg-poll')?.value);
+    const sfi = parseInt(document.getElementById('cfg-fallback-sfi')?.value);
+    const kp  = parseFloat(document.getElementById('cfg-fallback-kp')?.value);
+    if (!isNaN(t) && t>=3)   NOAA_CONFIG.timeout_ms    = t*1000;
+    if (!isNaN(p) && p>=1)   NOAA_CONFIG.poll_interval = p;
+    if (!isNaN(sfi)&& sfi>0) NOAA_CONFIG.fallback_sfi  = sfi;
+    if (!isNaN(kp) && kp>=0) NOAA_CONFIG.fallback_kp   = kp;
+    try { localStorage.setItem('pw_noaa_config', JSON.stringify({
+      timeout_ms:NOAA_CONFIG.timeout_ms, poll_interval:NOAA_CONFIG.poll_interval,
+      fallback_sfi:NOAA_CONFIG.fallback_sfi, fallback_kp:NOAA_CONFIG.fallback_kp }));
+    } catch {}
+    showToast('Config saved', 'success');
+  });
+};
 
 /* ── Global error handler ── */
 window.addEventListener('unhandledrejection', e => {
