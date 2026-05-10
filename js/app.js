@@ -73,25 +73,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   setInterval(fetchNOAA,          5 * 60 * 1000);
 
-  // Mark modules as loaded and process any pending navigation
-  window._pwModulesLoaded = true;
-  window._doShowScreen = function(id) {
-    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    const el = document.getElementById('screen-' + id);
-    if (el) el.classList.add('active');
-    document.querySelectorAll('.nav-item').forEach(n => {
-      n.classList.toggle('active', n.dataset.screen === id);
-    });
-  };
-  window.showScreen = showScreen; // override stub with real function
-  
-  if (window._pendingScreen) {
-    const ps = window._pendingScreen;
-    window._pendingScreen = null;
-    if (ps === 'setup_new') { showScreen('setup'); initNewWatch(); }
-    else if (ps === 'settings') { showScreen('settings'); initSettings(); }
-    else showScreen(ps);
-  }
+  // Modules loaded — real globals now active
   setInterval(evaluateAllWatches, 5 * 60 * 1000);
   setInterval(() => {
     const el = document.getElementById('timeline-now');
