@@ -136,18 +136,24 @@
         </h3>
         <div class="field" style="margin-bottom:var(--space-4)">
           <label class="field__label">License class</label>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-2)">
+          <div style="display:flex;flex-direction:column;gap:var(--space-2)">
             <button class="btn btn--secondary" id="lic-C" data-lic="C"
-                    onclick="window._pwSelectLicClass('C',this)">
-              Class C<br><small class="mono" style="font-size:10px">max 25W</small>
+                    onclick="window._pwSelectLicClass('C',this)"
+                    style="justify-content:space-between;min-height:44px;padding:0 var(--space-4)">
+              <span style="font-weight:var(--weight-bold)">Class C</span>
+              <span class="mono" style="font-size:var(--text-xs);color:var(--color-text-secondary)">max 25W · Novice / Belgian HAREC candidate</span>
             </button>
             <button class="btn btn--secondary" id="lic-B" data-lic="B"
-                    onclick="window._pwSelectLicClass('B',this)">
-              Class B<br><small class="mono" style="font-size:10px">max 100W</small>
+                    onclick="window._pwSelectLicClass('B',this)"
+                    style="justify-content:space-between;min-height:44px;padding:0 var(--space-4)">
+              <span style="font-weight:var(--weight-bold)">Class B</span>
+              <span class="mono" style="font-size:var(--text-xs);color:var(--color-text-secondary)">max 100W · Intermediate</span>
             </button>
             <button class="btn btn--primary" id="lic-A" data-lic="A"
-                    onclick="window._pwSelectLicClass('A',this)">
-              Class A<br><small class="mono" style="font-size:10px">max 1500W</small>
+                    onclick="window._pwSelectLicClass('A',this)"
+                    style="justify-content:space-between;min-height:44px;padding:0 var(--space-4)">
+              <span style="font-weight:var(--weight-bold)">Class A</span>
+              <span class="mono" style="font-size:var(--text-xs)">max 1500W · HAREC full license</span>
             </button>
           </div>
         </div>
@@ -160,9 +166,11 @@
           <input type="range" id="pwr-slider" min="1" max="1500" step="1" value="100"
                  oninput="window._pwUpdatePower(this.value)" style="width:100%"/>
           <div style="display:flex;justify-content:space-between;
-                      font-size:var(--text-xs);color:var(--color-text-muted);
+                      font-size:10px;color:var(--color-text-muted);
                       font-family:var(--font-mono);margin-top:var(--space-1)">
-            <span>1W</span><span>QRP 5W</span><span>25W</span><span>100W</span><span>1500W</span>
+            <span>1W</span><span id="pwr-min-qrp">QRP 5W</span>
+            <span id="pwr-mid">25W</span><span>100W</span>
+            <span id="pwr-max-label">1500W</span>
           </div>
           <div class="field__hint" id="pwr-hint" style="margin-top:var(--space-2)"></div>
         </div>

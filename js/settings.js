@@ -248,33 +248,70 @@ window._pwSelectLicClass = function(cls, btn) {
     b.classList.toggle('btn--primary',   b.dataset.lic === cls);
     b.classList.toggle('btn--secondary', b.dataset.lic !== cls);
   });
-  const maxMap = { C: 25, B: 100, A: 1500 };
-  const defMap = { C: 25, B: 75, A: 100 };
+  const maxMap = { C: 25,  B: 100, A: 1500 };
+  const defMap = { C: 25,  B: 100, A: 100  };
   state.user.licenseClass = cls;
+  const max = maxMap[cls];
+
   const sl = document.getElementById('pwr-slider');
   if (sl) {
-    sl.max   = maxMap[cls];
-    sl.value = Math.min(parseInt(sl.value), maxMap[cls]) || defMap[cls];
-    updatePowerDisplay(sl.value);
+    sl.max = max;
+    // Als huidige waarde boven nieuw maximum: reset naar default
+    const cur = parseInt(sl.value);
+    const newVal = cur > max ? defMap[cls] : cur;
+    sl.value = newVal;
+    state.user.txPowerW = newVal;
+    updatePowerDisplay(newVal);
   }
+
+  // Pas sliderschaalmarkeringen aan per klasse
+  const midEl   = document.getElementById('pwr-mid');
+  const maxEl   = document.getElementById('pwr-max-label');
+  if (midEl) midEl.textContent  = cls === 'C' ? '15W' : cls === 'B' ? '50W' : '100W';
+  if (maxEl) maxEl.textContent  = max + 'W';
+
   persistUser();
+  evaluateAllWatches();
+  publish('watches', state.watches);
 };
 
 window._pwUpdatePower = function(v) {
   v = parseInt(v);
   state.user.txPowerW = v;
+  // Als slider handmatig boven 5W gaat: QRP mode uit
+  if (v > 5 && state.user.qrpMode) {
+    state.user.qrpMode = false;
+    const tog = document.getElementById('qrp-toggle');
+    if (tog) tog.checked = false;
+  }
   updatePowerDisplay(v);
   persistUser();
+  // Herbereken alle watches met nieuw vermogen en update UI
   evaluateAllWatches();
+  publish('watches', state.watches);
 };
 
 window._pwToggleQRP = function(on) {
-  state.user.qrpMode  = on;
-  if (on) state.user.txPowerW = 5;
+  state.user.qrpMode = on;
+  if (on) {
+    state.user.txPowerW = 5;
+  } else {
+    // Herstel naar sane default per licentie als QRP uit gaat
+    const maxMap  = { C: 25, B: 100, A: 1500 };
+    const defMap  = { C: 25, B: 100, A: 100  };
+    const lc = state.user.licenseClass ?? 'A';
+    if (state.user.txPowerW <= 5) {
+      state.user.txPowerW = defMap[lc];
+    }
+  }
   const sl = document.getElementById('pwr-slider');
-  if (sl) { sl.value = state.user.txPowerW; updatePowerDisplay(state.user.txPowerW); }
+  if (sl) {
+    sl.value = state.user.txPowerW;
+    updatePowerDisplay(state.user.txPowerW);
+  }
   persistUser();
   evaluateAllWatches();
+  publish('watches', state.watches);
 };
 
 window._pwToggleTheme = function(light) {
