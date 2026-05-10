@@ -1,21 +1,47 @@
-// sw.js — Service Worker for Propagatie Watch
-const CACHE_NAME = 'pw-cache-v1';
+/* Propagatie Watch — Service Worker v1.1
+ * NOAA requests bypass SW completely — no caching interference.
+ * Static assets: Cache First. Everything else: Network First. */
+
+const CACHE_NAME   = 'pw-cache-v2';
+const NOAA_ORIGINS = ['services.swpc.noaa.gov'];
+
 const STATIC_ASSETS = [
-  '/', '/index.html',
-  '/css/tokens.css', '/css/reset.css', '/css/base.css',
-  '/css/layout.css', '/css/components.css', '/css/timeline.css', '/css/setup.css',
-  '/js/ui.js',
-  '/js/app.js', '/js/state.js', '/js/storage.js', '/js/utils.js',
-  '/js/i18n.js', '/js/propagation.js', '/js/greyline.js',
-  '/js/noaa.js', '/js/watches.js', '/js/notifications.js', '/js/export.js',
-  '/lib/suncalc.js',
-  '/data/dxcc-entities.json', '/data/meteor-showers.json', '/data/band-profiles.json',
-  '/manifest.json',
+  './',
+  './index.html',
+  './manifest.json',
+  './css/tokens.css',
+  './css/reset.css',
+  './css/base.css',
+  './css/layout.css',
+  './css/components.css',
+  './css/timeline.css',
+  './css/setup.css',
+  './js/ui.js',
+  './js/settings.js',
+  './js/app.js',
+  './js/state.js',
+  './js/storage.js',
+  './js/utils.js',
+  './js/i18n.js',
+  './js/watches.js',
+  './js/propagation.js',
+  './js/greyline.js',
+  './js/noaa.js',
+  './js/notifications.js',
+  './js/export.js',
+  './js/setup.js',
+  './js/timeline.js',
+  './lib/suncalc.js',
+  './data/dxcc-entities.json',
+  './data/meteor-showers.json',
+  './data/band-profiles.json',
 ];
 
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS))
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(STATIC_ASSETS))
+      .catch(err => console.warn('SW cache install error:', err))
   );
   self.skipWaiting();
 });
@@ -30,39 +56,33 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  const { request } = event;
-  const url = new URL(request.url);
+  const url = new URL(event.request.url);
 
-  // NOAA API: Network first, fall back to cache
-  if (url.hostname === 'services.swpc.noaa.gov') {
-    event.respondWith(
-      fetch(request).then(res => {
-        const clone = res.clone();
-        caches.open(CACHE_NAME).then(c => c.put(request, clone));
-        return res;
-      }).catch(() => caches.match(request))
-    );
+  // NOAA API: NEVER cache, always go to network directly
+  if (NOAA_ORIGINS.includes(url.hostname)) {
+    // Let browser handle it — no event.respondWith
     return;
   }
 
-  // Everything else: Cache first
-  event.respondWith(
-    caches.match(request).then(cached => cached || fetch(request))
-  );
+  // Static assets: Cache First (offline support)
+  if (event.request.method === 'GET') {
+    event.respondWith(
+      caches.match(event.request).then(cached => {
+        if (cached) return cached;
+        return fetch(event.request).then(response => {
+          // Cache valid responses
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
+          }
+          return response;
+        });
+      })
+    );
+  }
 });
 
-// Handle notification clicks
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  const url = event.notification.data?.url || '/';
-  event.waitUntil(
-    clients.matchAll({ type: 'window' }).then(windowClients => {
-      if (windowClients.length > 0) {
-        windowClients[0].focus();
-        windowClients[0].postMessage({ type: 'navigate', url });
-      } else {
-        clients.openWindow(url);
-      }
-    })
-  );
+  event.waitUntil(clients.openWindow(event.notification.data ?? './'));
 });

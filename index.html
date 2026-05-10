@@ -115,61 +115,92 @@
 
     <!-- ── Settings screen ── -->
     <section id="screen-settings" class="screen" aria-label="Settings">
-      <h2 style="font-size:var(--text-lg);font-weight:var(--weight-bold);margin-bottom:var(--space-6)">Settings</h2>
+      <h2 style="font-size:var(--text-lg);font-weight:var(--weight-bold);margin-bottom:var(--space-4)">Settings</h2>
+
+      <!-- Data Sources — API test -->
+      <div class="card" style="margin-bottom:var(--space-4)">
+        <h3 style="font-size:var(--text-md);font-weight:var(--weight-bold);margin-bottom:var(--space-3)">
+          📡 Data Sources
+        </h3>
+        <div id="api-test-panel">
+          <div style="color:var(--color-text-muted);font-size:var(--text-sm)">
+            Tap "Test API" to check NOAA connectivity.
+          </div>
+        </div>
+      </div>
 
       <!-- Power & License -->
       <div class="card" style="margin-bottom:var(--space-4)">
-        <h3 style="font-size:var(--text-md);font-weight:var(--weight-bold);margin-bottom:var(--space-2)">Power &amp; License</h3>
-        <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin-bottom:var(--space-4)">
-          Affects reliability calculations for all watches.
-        </p>
-
+        <h3 style="font-size:var(--text-md);font-weight:var(--weight-bold);margin-bottom:var(--space-3)">
+          ⚡ Power &amp; License
+        </h3>
         <div class="field" style="margin-bottom:var(--space-4)">
           <label class="field__label">License class</label>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-2)">
-            <button class="btn btn--secondary" id="lic-C" data-lic="C" onclick="window._pwSelectLicClass('C',this)">
+            <button class="btn btn--secondary" id="lic-C" data-lic="C"
+                    onclick="window._pwSelectLicClass('C',this)">
               Class C<br><small class="mono" style="font-size:10px">max 25W</small>
             </button>
-            <button class="btn btn--secondary" id="lic-B" data-lic="B" onclick="window._pwSelectLicClass('B',this)">
+            <button class="btn btn--secondary" id="lic-B" data-lic="B"
+                    onclick="window._pwSelectLicClass('B',this)">
               Class B<br><small class="mono" style="font-size:10px">max 100W</small>
             </button>
-            <button class="btn btn--primary"   id="lic-A" data-lic="A" onclick="window._pwSelectLicClass('A',this)">
+            <button class="btn btn--primary" id="lic-A" data-lic="A"
+                    onclick="window._pwSelectLicClass('A',this)">
               Class A<br><small class="mono" style="font-size:10px">max 1500W</small>
             </button>
           </div>
         </div>
-
         <div class="field" style="margin-bottom:var(--space-4)">
           <label class="field__label">
             Transmit power:
-            <span id="pwr-display" class="mono" style="color:var(--color-text-primary)">100W</span>
-            <span id="pwr-db" style="font-size:var(--text-xs);color:var(--color-text-muted)"> (reference)</span>
+            <span id="pwr-display" class="mono">100W</span>
+            <span id="pwr-db" style="font-size:var(--text-xs);color:var(--color-text-muted)"> (reference 100W)</span>
           </label>
           <input type="range" id="pwr-slider" min="1" max="1500" step="1" value="100"
                  oninput="window._pwUpdatePower(this.value)" style="width:100%"/>
-          <div style="display:flex;justify-content:space-between;font-size:var(--text-xs);color:var(--color-text-muted);font-family:var(--font-mono);margin-top:var(--space-1)">
-            <span>1W</span><span>QRP 5W</span><span>25W</span><span>100W</span><span id="pwr-max-label">1500W</span>
+          <div style="display:flex;justify-content:space-between;
+                      font-size:var(--text-xs);color:var(--color-text-muted);
+                      font-family:var(--font-mono);margin-top:var(--space-1)">
+            <span>1W</span><span>QRP 5W</span><span>25W</span><span>100W</span><span>1500W</span>
           </div>
           <div class="field__hint" id="pwr-hint" style="margin-top:var(--space-2)"></div>
         </div>
-
         <div class="field">
           <label style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">
-            <span class="field__label" style="margin-bottom:0">QRP mode (≤ 5W) — POTA/SOTA portable</span>
+            <span class="field__label" style="margin-bottom:0">QRP mode (≤ 5W) — POTA/SOTA</span>
             <label class="toggle">
-              <input type="checkbox" class="toggle__input" id="qrp-toggle" onchange="window._pwToggleQRP(this.checked)"/>
+              <input type="checkbox" class="toggle__input" id="qrp-toggle"
+                     onchange="window._pwToggleQRP(this.checked)"/>
               <span class="toggle__track"></span>
             </label>
           </label>
         </div>
       </div>
 
-      <!-- Language & Theme -->
+      <!-- Location -->
       <div class="card" style="margin-bottom:var(--space-4)">
-        <h3 style="font-size:var(--text-md);font-weight:var(--weight-bold);margin-bottom:var(--space-4)">Display</h3>
+        <h3 style="font-size:var(--text-md);font-weight:var(--weight-bold);margin-bottom:var(--space-3)">
+          📍 Location
+        </h3>
+        <div class="field">
+          <label class="field__label">Grid square</label>
+          <input class="field__input" id="grid-input" placeholder="e.g. JO20ev"
+                 autocapitalize="characters"/>
+        </div>
+        <button class="btn btn--primary" style="margin-top:var(--space-3);width:100%"
+                onclick="window._pwSaveLocation()">Save location</button>
+      </div>
+
+      <!-- Display -->
+      <div class="card">
+        <h3 style="font-size:var(--text-md);font-weight:var(--weight-bold);margin-bottom:var(--space-3)">
+          🎨 Display
+        </h3>
         <div class="field" style="margin-bottom:var(--space-4)">
           <label class="field__label">Language</label>
-          <select class="field__input" id="lang-select" onchange="window._pwChangeLang(this.value)">
+          <select class="field__input" id="lang-select"
+                  onchange="window._pwChangeLang(this.value)">
             <option value="en">English</option>
             <option value="nl">Nederlands</option>
           </select>
@@ -178,22 +209,12 @@
           <label style="display:flex;justify-content:space-between;align-items:center">
             <span class="field__label" style="margin-bottom:0">Light theme</span>
             <label class="toggle">
-              <input type="checkbox" class="toggle__input" id="theme-toggle" onchange="window._pwToggleTheme(this.checked)"/>
+              <input type="checkbox" class="toggle__input" id="theme-toggle"
+                     onchange="window._pwToggleTheme(this.checked)"/>
               <span class="toggle__track"></span>
             </label>
           </label>
         </div>
-      </div>
-
-      <!-- Location -->
-      <div class="card">
-        <h3 style="font-size:var(--text-md);font-weight:var(--weight-bold);margin-bottom:var(--space-4)">Location</h3>
-        <div class="field">
-          <label class="field__label">Grid square</label>
-          <input class="field__input" id="grid-input" placeholder="e.g. JO20ev"/>
-        </div>
-        <button class="btn btn--primary" style="margin-top:var(--space-4);width:100%"
-                onclick="window._pwSaveLocation()">Save location</button>
       </div>
     </section>
 

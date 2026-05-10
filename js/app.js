@@ -8,6 +8,7 @@ import { initSetup, initNewWatch, setDxccData }  from './setup.js';
 import { watchWindowToICS, downloadICS }        from './export.js';
 import { t, setLang }                           from './i18n.js';
 import { showScreen, showToast }                from './ui.js';
+import { initSettings, syncSettingsUI }         from './settings.js';
 import { formatUTC, formatBothTimes, formatLocal, ageMinutes } from './utils.js';
 
 /* ── Boot ── */
@@ -20,12 +21,19 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   loadPersistedState();
 
+  // Load saved NOAA config
+  const savedCfg = JSON.parse(localStorage.getItem('pw_noaa_config') || 'null');
+  if (savedCfg) {
+    const { NOAA_CONFIG } = await import('./noaa.js');
+    Object.assign(NOAA_CONFIG, savedCfg);
+  }
+
   // Apply theme and language
   document.documentElement.dataset.theme = state.user.theme ?? 'dark';
   setLang(state.user.lang ?? 'en');
 
-  // Sync settings UI to persisted values
-  syncSettingsUI();
+  // Init settings screen
+  initSettings();
 
   // Load static data
   const base = '/PropagationWatch';
@@ -401,76 +409,7 @@ window._pwFetchNOAA = function() {
 };
 
 /* ── Settings handlers — write straight to state + persist ── */
-window._pwSelectLicClass = function(cls, btn) {
-  document.querySelectorAll('[data-lic]').forEach(b => {
-    b.classList.toggle('btn--primary',   b.dataset.lic === cls);
-    b.classList.toggle('btn--secondary', b.dataset.lic !== cls);
-  });
-  const maxMap = { C: 25, B: 100, A: 1500 };
-  const defMap = { C: 25, B: 75,  A: 100  };
-  state.user.licenseClass = cls;
-  const sl = document.getElementById('pwr-slider');
-  if (sl) {
-    sl.max = maxMap[cls];
-    if (parseInt(sl.value) > maxMap[cls]) sl.value = defMap[cls];
-    updatePowerDisplay(parseInt(sl.value));
-  }
-  persistUser();
-};
-
-window._pwUpdatePower = function(v) {
-  v = parseInt(v);
-  state.user.txPowerW = v;
-  updatePowerDisplay(v);
-  persistUser();
-  // Re-evaluate watches with new power
-  import('./watches.js').then(m => { m.evaluateAllWatches(); renderWatchList(); });
-};
-
-window._pwToggleQRP = function(on) {
-  state.user.qrpMode = on;
-  const sl = document.getElementById('pwr-slider');
-  if (sl) { sl.value = on ? 5 : (state.user.txPowerW || 100); updatePowerDisplay(parseInt(sl.value)); }
-  if (on) { state.user.txPowerW = 5; }
-  persistUser();
-  import('./watches.js').then(m => m.evaluateAllWatches());
-};
-
-window._pwToggleTheme = function(light) {
-  state.user.theme = light ? 'light' : 'dark';
-  document.documentElement.dataset.theme = state.user.theme;
-  persistUser();
-};
-
-window._pwChangeLang = function(lang) {
-  state.user.lang = lang;
-  import('./i18n.js').then(m => m.setLang(lang));
-  persistUser();
-};
-
-window._pwSaveLocation = function() {
-  const val = document.getElementById('grid-input')?.value?.trim();
-  if (!val) return;
-  import('./utils.js').then(({ gridToLatLon }) => {
-    const { lat, lon } = gridToLatLon(val);
-    state.user.grid = val.toUpperCase();
-    state.user.lat  = lat;
-    state.user.lon  = lon;
-    persistUser();
-    showToast('Location saved — ' + val.toUpperCase(), 'success');
-    import('./watches.js').then(m => m.evaluateAllWatches());
-  });
-};
-
-function updatePowerDisplay(v) {
-  const disp = document.getElementById('pwr-display');
-  const dbEl = document.getElementById('pwr-db');
-  const hint = document.getElementById('pwr-hint');
-  if (disp) disp.textContent = v + 'W';
-  if (dbEl) {
-    const db = v === 100 ? 0 : 10 * Math.log10(v / 100);
-    dbEl.textContent = v === 100 ? ' (reference)' : ` (${db.toFixed(1)} dB vs 100W)`;
-  }
+// Settings handlers moved to settings.js
   if (hint) {
     if (v <= 5)        hint.textContent = 'QRP range — only high-reliability paths recommended.';
     else if (v <= 25)  hint.textContent = 'Class C range — significant reduction on marginal paths.';
@@ -484,6 +423,13 @@ function updatePowerDisplay(v) {
 window.addEventListener('unhandledrejection', e => {
   console.error('Unhandled:', e.reason);
   showToast('Something went wrong — data is safe', 'warn');
+});
+
+// Re-render settings when navigated to
+document.querySelectorAll('.nav-item[data-screen="settings"]').forEach(el => {
+  el.addEventListener('click', () => {
+    setTimeout(() => import('./settings.js').then(m => m.initSettings()), 50);
+  });
 });
 
 window.addEventListener('online',  () => { state.connections.offline = false; window._pwFetchNOAA(); });
