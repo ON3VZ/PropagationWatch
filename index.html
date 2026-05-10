@@ -127,13 +127,13 @@
         <div class="field" style="margin-bottom:var(--space-4)">
           <label class="field__label">License class</label>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-2)">
-            <button class="btn btn--secondary" id="lic-C" onclick="selectLicClass('C',this)">
+            <button class="btn btn--secondary" id="lic-C" data-lic="C" onclick="window._pwSelectLicClass('C',this)">
               Class C<br><small class="mono" style="font-size:10px">max 25W</small>
             </button>
-            <button class="btn btn--secondary" id="lic-B" onclick="selectLicClass('B',this)">
+            <button class="btn btn--secondary" id="lic-B" data-lic="B" onclick="window._pwSelectLicClass('B',this)">
               Class B<br><small class="mono" style="font-size:10px">max 100W</small>
             </button>
-            <button class="btn btn--primary"   id="lic-A" onclick="selectLicClass('A',this)">
+            <button class="btn btn--primary"   id="lic-A" data-lic="A" onclick="window._pwSelectLicClass('A',this)">
               Class A<br><small class="mono" style="font-size:10px">max 1500W</small>
             </button>
           </div>
@@ -146,7 +146,7 @@
             <span id="pwr-db" style="font-size:var(--text-xs);color:var(--color-text-muted)"> (reference)</span>
           </label>
           <input type="range" id="pwr-slider" min="1" max="1500" step="1" value="100"
-                 oninput="updatePowerDisplay(this.value)" style="width:100%"/>
+                 oninput="window._pwUpdatePower(this.value)" style="width:100%"/>
           <div style="display:flex;justify-content:space-between;font-size:var(--text-xs);color:var(--color-text-muted);font-family:var(--font-mono);margin-top:var(--space-1)">
             <span>1W</span><span>QRP 5W</span><span>25W</span><span>100W</span><span id="pwr-max-label">1500W</span>
           </div>
@@ -157,7 +157,7 @@
           <label style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">
             <span class="field__label" style="margin-bottom:0">QRP mode (≤ 5W) — POTA/SOTA portable</span>
             <label class="toggle">
-              <input type="checkbox" class="toggle__input" id="qrp-toggle" onchange="toggleQRP(this.checked)"/>
+              <input type="checkbox" class="toggle__input" id="qrp-toggle" onchange="window._pwToggleQRP(this.checked)"/>
               <span class="toggle__track"></span>
             </label>
           </label>
@@ -169,7 +169,7 @@
         <h3 style="font-size:var(--text-md);font-weight:var(--weight-bold);margin-bottom:var(--space-4)">Display</h3>
         <div class="field" style="margin-bottom:var(--space-4)">
           <label class="field__label">Language</label>
-          <select class="field__input" id="lang-select" onchange="changeLang(this.value)">
+          <select class="field__input" id="lang-select" onchange="window._pwChangeLang(this.value)">
             <option value="en">English</option>
             <option value="nl">Nederlands</option>
           </select>
@@ -178,7 +178,7 @@
           <label style="display:flex;justify-content:space-between;align-items:center">
             <span class="field__label" style="margin-bottom:0">Light theme</span>
             <label class="toggle">
-              <input type="checkbox" class="toggle__input" id="theme-toggle" onchange="toggleTheme(this.checked)"/>
+              <input type="checkbox" class="toggle__input" id="theme-toggle" onchange="window._pwToggleTheme(this.checked)"/>
               <span class="toggle__track"></span>
             </label>
           </label>
@@ -193,7 +193,7 @@
           <input class="field__input" id="grid-input" placeholder="e.g. JO20ev"/>
         </div>
         <button class="btn btn--primary" style="margin-top:var(--space-4);width:100%"
-                onclick="saveLocationSettings()">Save location</button>
+                onclick="window._pwSaveLocation()">Save location</button>
       </div>
     </section>
 
@@ -218,72 +218,6 @@
   <script type="module" src="js/ui.js"></script>
   <script type="module" src="js/app.js"></script>
 
-  <!-- Inline helpers for settings screen (non-module onclick handlers) -->
-  <script>
-    function selectLicClass(cls, btn) {
-      document.querySelectorAll('[id^="lic-"]').forEach(b => b.classList.replace('btn--primary','btn--secondary'));
-      btn.classList.replace('btn--secondary','btn--primary');
-      const maxMap = {C:25, B:100, A:1500};
-      const defMap = {C:25, B:75,  A:100};
-      const sl = document.getElementById('pwr-slider');
-      sl.max   = maxMap[cls];
-      sl.value = Math.min(defMap[cls], maxMap[cls]);
-      document.getElementById('pwr-max-label').textContent = maxMap[cls] + 'W';
-      updatePowerDisplay(sl.value);
-      // Update state if app is loaded
-      if (window._state) { window._state.user.licenseClass = cls; }
-    }
-
-    function updatePowerDisplay(v) {
-      v = parseInt(v);
-      document.getElementById('pwr-display').textContent = v + 'W';
-      const db = v === 100 ? 0 : 10 * Math.log10(v / 100);
-      const dbEl = document.getElementById('pwr-db');
-      dbEl.textContent = v === 100 ? ' (reference)' : ` (${db.toFixed(1)} dB vs 100W)`;
-      const hintEl = document.getElementById('pwr-hint');
-      if (v <= 5)   hintEl.textContent = 'QRP range — only high-reliability paths recommended.';
-      else if (v <= 25) hintEl.textContent = 'Class C range — significant reduction on marginal paths.';
-      else if (v < 100) hintEl.textContent = 'Moderate power — slight reduction on marginal paths.';
-      else if (v === 100) hintEl.textContent = 'Reference power — no correction applied.';
-      else hintEl.textContent = 'High power — reliability scores are higher than the base calculation.';
-      if (window._state) window._state.user.txPowerW = v;
-    }
-
-    function toggleQRP(on) {
-      const sl = document.getElementById('pwr-slider');
-      if (on) { sl.value = 5; updatePowerDisplay(5); }
-      else    { sl.value = 100; updatePowerDisplay(100); }
-      if (window._state) window._state.user.qrpMode = on;
-    }
-
-    function toggleTheme(light) {
-      document.documentElement.dataset.theme = light ? 'light' : 'dark';
-      if (window._state) {
-        window._state.user.theme = light ? 'light' : 'dark';
-        import('./js/storage.js').then(m => m.save('user', window._state.user));
-      }
-    }
-
-    function changeLang(lang) {
-      import('./js/i18n.js').then(m => m.setLang(lang));
-      if (window._state) window._state.user.lang = lang;
-    }
-
-    function saveLocationSettings() {
-      const val = document.getElementById('grid-input')?.value?.trim();
-      if (!val) return;
-      import('./js/utils.js').then(m => {
-        const { lat, lon } = m.gridToLatLon(val);
-        if (window._state) {
-          window._state.user.grid = val.toUpperCase();
-          window._state.user.lat  = lat;
-          window._state.user.lon  = lon;
-          import('./js/storage.js').then(s => s.save('user', window._state.user));
-          import('./js/app.js').then(a => a.showToast('Location saved', 'success'));
-        }
-      });
-    }
-  </script>
 
 </body>
 </html>

@@ -11,7 +11,7 @@ export const state = {
     lang:         'en',
     theme:        'dark',
     configured:   false,
-    licenseClass: 'A',   // 'A' | 'B' | 'C'
+    licenseClass: 'A',
     txPowerW:     100,
     qrpMode:      false,
   },
@@ -37,10 +37,13 @@ export const state = {
   },
 };
 
+// Expose state globally so inline onclick handlers in index.html can access it
+window._pwState = state;
+
 /* ── Persistence ── */
-export function persistUser()    { save('user',    state.user) }
-export function persistWatches() { save('watches', state.watches) }
-export function persistAlarms()  { save('alarms',  state.alarms) }
+export function persistUser()    { save('user',    state.user); }
+export function persistWatches() { save('watches', state.watches); }
+export function persistAlarms()  { save('alarms',  state.alarms); }
 
 export function loadPersistedState() {
   const user    = load('user');
@@ -51,14 +54,16 @@ export function loadPersistedState() {
   if (user)  Object.assign(state.user, user);
   state.watches = watches;
   state.alarms  = alarms;
+
   if (noaa) {
+    const age = ageMinutes(noaa.fetchedAt);
     Object.assign(state.propagation, {
-      kp:        noaa.kp,
-      sfi:       noaa.sfi,
-      gScale:    noaa.gScale ?? 0,
-      kpForecast:noaa.kpForecast ?? [],
-      fetchedAt: noaa.fetchedAt,
-      stale:     ageMinutes(noaa.fetchedAt) > 30,
+      kp:         noaa.kp,
+      sfi:        noaa.sfi,
+      gScale:     noaa.gScale ?? 0,
+      kpForecast: noaa.kpForecast ?? [],
+      fetchedAt:  noaa.fetchedAt,
+      stale:      age > 30,
     });
   }
 }
@@ -68,7 +73,7 @@ function ageMinutes(iso) {
   return Math.round((Date.now() - new Date(iso).getTime()) / 60000);
 }
 
-/* ── Simple pub/sub for state changes ── */
+/* ── Simple pub/sub ── */
 const subs = {};
 
 export function subscribe(key, cb) {
