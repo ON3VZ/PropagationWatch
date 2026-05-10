@@ -392,6 +392,10 @@ S.user.theme        = S.user.theme        || 'dark';
 S.user.lang         = S.user.lang         || 'en';
 S.user.configured   = S.user.configured   || false;
 S.user.timezone     = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Brussels';
+// Recover lat/lon from grid if missing
+if (!S.user.lat && S.user.grid) {
+  try { const ll = gridToLL(S.user.grid); S.user.lat = ll.lat; S.user.lon = ll.lon; } catch(e) {}
+}
 
 // ── Save helpers ──
 function saveUser()    { try { localStorage.setItem('pw_user',    JSON.stringify(S.user));    } catch(e) {} }
@@ -448,8 +452,16 @@ async function fetchNoaa() {
     const r = await tFetch(BASE + '/solar-cycle/observed-solar-cycle-indices.json');
     const d = await r.json();
     for (let i = d.length-1; i >= 0; i--) {
-      const v = parseFloat(d[i].flux || d[i].sfi);
-      if (!isNaN(v) && v > 0) { S.prop.sfi = v; ok = true; break; }
+      const row = d[i];
+      // Try all known field names for SFI
+      const v = parseFloat(row.flux || row.sfi || row.f10 || row['observed-flux'] || row['solar-flux']);
+      if (!isNaN(v) && v > 50 && v < 500) { S.prop.sfi = v; ok = true; break; }
+      // Last resort: scan all numeric fields in valid range
+      for (const k of Object.keys(row)) {
+        const vk = parseFloat(row[k]);
+        if (!isNaN(vk) && vk > 50 && vk < 500) { S.prop.sfi = vk; ok = true; break; }
+      }
+      if (ok) break;
     }
   } catch(e) { console.warn('SFI fetch:', e.message); }
 
@@ -665,6 +677,11 @@ function renderWatchList() {
   if (!el) return;
   if (!S.watches.length) {
     el.innerHTML = '<div class="empty">No watches yet<br><br><button class="btn btn-pri" style="max-width:200px;margin:0 auto" onclick="goNewWatch()">+ Add watch</button></div>';
+    return;
+  }
+  // Warn if location not set
+  if (!S.user.lat) {
+    el.innerHTML = '<div class="empty" style="color:var(--warn-tx)">⚠ Location not set<br><small style="color:var(--tx3)">Go to Settings → Location to enter your grid square</small></div>';
     return;
   }
   const sorted = [...S.watches].sort((a,b) => {
@@ -1204,10 +1221,24 @@ async function doTestAPI() {
     throw new Error('No Kp found');
   });
   await testOne('sfi',apiURLs.sfi,d=>{
-    for(let i=d.length-1;i>=0;i--){const v=parseFloat(d[i].flux);if(!isNaN(v)&&v>0)return v;}
-    throw new Error('No SFI found');
+    // NOAA field names vary: try all known variants
+    const fields=['flux','sfi','f10','observed-flux','sfi_observed','solar-flux'];
+    for(let i=d.length-1;i>=0;i--){
+      for(const f of fields){
+        const v=parseFloat(d[i][f]);
+        if(!isNaN(v)&&v>50&&v<500)return v; // SFI is always 50-300
+      }
+    }
+    // Last resort: find any number in 50-300 range in last item
+    const last=d[d.length-1];
+    for(const k of Object.keys(last)){const v=parseFloat(last[k]);if(!isNaN(v)&&v>50&&v<500)return v;}
+    throw new Error('No SFI found — fields: '+Object.keys(d[d.length-1]||{}).join(', '));
   });
-  await testOne('scales',apiURLs.scales,d=>parseInt(d?.G?.Scale||0));
+  await testOne('scales',apiURLs.scales,d=>{
+    // noaa-scales.json geeft {"G":{"Scale":"1",...},...}
+    const g=parseInt(d?.G?.Scale||d?.Geomagnetic?.Scale||0);
+    return isNaN(g)?0:g;
+  });
 
   const anyOk = apiSt.kp.ok||apiSt.sfi.ok;
   if(anyOk) {

@@ -1,5 +1,5 @@
 /* Propagation Watch — Service Worker */
-const CACHE = 'pw-v10';
+const CACHE = 'pw-v11';
 const STATIC = ['./','./index.html','./manifest.json','./lib/suncalc.js'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(STATIC)));
