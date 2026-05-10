@@ -8,7 +8,7 @@ import { initSetup, initNewWatch, setDxccData }  from './setup.js';
 import { watchWindowToICS, downloadICS }        from './export.js';
 import { t, setLang }                           from './i18n.js';
 import { showScreen, showToast }                from './ui.js';
-import { initSettings }                         from './settings.js';
+import { initSettings, syncSettingsUI }          from './settings.js';
 import { formatUTC, formatBothTimes, formatLocal, ageMinutes } from './utils.js';
 
 /* ── Boot ── */
@@ -32,7 +32,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   document.documentElement.dataset.theme = state.user.theme ?? 'dark';
   setLang(state.user.lang ?? 'en');
 
-  // Init settings screen
+  // Init settings screen (safe — settings.js might not be fully loaded yet)
   initSettings();
 
   // Load static data
@@ -69,46 +69,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   }, 30000);
 });
 
-/* ── Sync settings UI ── */
-function syncSettingsUI() {
-  const pw   = state.user.txPowerW   ?? 100;
-  const lc   = state.user.licenseClass ?? 'A';
-  const qrp  = state.user.qrpMode    ?? false;
-  const theme= state.user.theme       ?? 'dark';
-  const lang = state.user.lang        ?? 'en';
-  const grid = state.user.grid        ?? '';
-
-  // Power slider
-  const slider = document.getElementById('pwr-slider');
-  if (slider) {
-    const maxMap = { C: 25, B: 100, A: 1500 };
-    slider.max   = maxMap[lc] ?? 1500;
-    slider.value = pw;
-    updatePowerDisplay(pw);
-  }
-
-  // License buttons
-  document.querySelectorAll('[data-lic]').forEach(btn => {
-    btn.classList.toggle('btn--primary',   btn.dataset.lic === lc);
-    btn.classList.toggle('btn--secondary', btn.dataset.lic !== lc);
-  });
-
-  // QRP toggle
-  const qrpToggle = document.getElementById('qrp-toggle');
-  if (qrpToggle) qrpToggle.checked = qrp;
-
-  // Theme toggle
-  const themeToggle = document.getElementById('theme-toggle');
-  if (themeToggle) themeToggle.checked = (theme === 'light');
-
-  // Lang select
-  const langSelect = document.getElementById('lang-select');
-  if (langSelect) langSelect.value = lang;
-
-  // Grid
-  const gridInput = document.getElementById('grid-input');
-  if (gridInput) gridInput.value = grid;
-}
+// syncSettingsUI is in settings.js
 
 /* ── Home screen ── */
 function renderHome() {
