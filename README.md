@@ -282,7 +282,50 @@ On 80m and 160m, very long paths require multiple F2-layer reflections, each wit
 
 Example: VP8 (12,847 km) on 80m at night: this factor reduces reliability from ~79% to ~42%, which correctly reflects the practical difficulty of this path.
 
+### F2 ionospheric gradient factor (time-of-day variation)
+
+This is the factor that makes the app answer "**when** is the path open from my location".
+
+**The physics:** F2 propagation on 20m and above is most efficient when TX and RX are in *opposite* day/night states. One side energises the F2 layer with solar radiation while the other benefits from low noise and stable ionisation. This is why 20m from Belgium to the USA peaks around 22:00–06:00 UTC — Belgian evening/night, American afternoon/night.
+
+**The factor:**
+
+```
+distWeight = min(1, max(0, (distKm - 1500) / 6000))
+           = 0 for short paths, 1 for long paths
+
+norm(elev) = clamp(elev / 20, -1, +1)
+           = -1 deep night, 0 at terminator, +1 full daylight
+
+endGradient = |norm(txElev) - norm(rxElev)| / 2   [0..1]
+midPenalty  = max(0, norm(midElev))² × 0.2 × distWeight
+
+factor = floor + (1 - floor) × endGradient - midPenalty
+floor  = 0.4 + 0.2 × (1 - distWeight)
+```
+
+**Distance dependence:**
+
+| Path length | distWeight | Effect |
+|-------------|-----------|--------|
+| < 1500 km (e.g. EA/Spain) | 0 | No gradient — F2 works in full daylight |
+| 3000 km | 0.25 | Mild variation |
+| 5890 km (W1/USA) | 0.73 | Strong variation |
+| 9220 km (JA/Japan) | 1.00 | Maximum variation |
+
+**Practical results from JO20ev on 20m FT8:**
+
+| Target | Peak UTC | Min UTC | Reason |
+|--------|---------|---------|--------|
+| W1 North America | 22:00–06:00 | 10:00–18:00 | EU night / US night-afternoon boundary |
+| JA Japan | 16:00–22:00 | 06:00–12:00 | EU afternoon / Japan night |
+| EA Spain | Flat ~55% | — | Short path, F2 works all day |
+| VP8 Falkland 40m | 21:00–04:00 | 09:00–17:00 | Greyline + D-layer model (not F2 gradient) |
+
+**Only applied to 20m and above.** On 40m and lower, the D-layer model already provides the time-of-day variation. The F2 gradient returns 1.0 for those bands.
+
 ### Power correction factor
+
 
 Transmit power affects the SNR margin at the receiving end. The correction is based on the dB difference from the 100W reference and the mode's SNR margin:
 
