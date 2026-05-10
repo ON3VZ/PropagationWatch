@@ -1,227 +1,258 @@
-/** settings.js — Settings screen logic including API test panel */
+/** settings.js — Settings screen: power, location, display, API test panel */
 
-import { state, persistUser } from './state.js';
-import { fetchNOAA, testAllEndpoints, apiStatus, ENDPOINTS, NOAA_CONFIG, noaaStaleness }
-  from './noaa.js';
-import { subscribe, publish } from './state.js';
-import { showToast } from './ui.js';
-import { ageMinutes } from './utils.js';
-import { gridToLatLon } from './utils.js';
+import { state, persistUser, subscribe, publish } from './state.js';
+import { fetchNOAA, testAllEndpoints, apiStatus,
+         ENDPOINTS, NOAA_CONFIG, noaaStaleness }    from './noaa.js';
+import { showToast }         from './ui.js';
+import { ageMinutes, gridToLatLon } from './utils.js';
 import { evaluateAllWatches } from './watches.js';
+import { setLang }           from './i18n.js';
 
-let testInProgress = false;
+/* Expose globally so onclick handlers in HTML can call it */
+window._pwInitSettings = initSettings;
 
-/** Initialise the settings screen — called once on first show */
+let _subscribed = false;
+
 export function initSettings() {
   syncSettingsUI();
   renderApiPanel();
-  subscribe('apiStatus', () => renderApiPanel());
+  // Subscribe only once
+  if (!_subscribed) {
+    subscribe('apiStatus', renderApiPanel);
+    subscribe('propagation', renderApiPanel);
+    _subscribed = true;
+  }
 }
 
-/* ── Sync all settings UI to current state ── */
+/* ─────────────────────────────────────────────
+   Sync all UI elements to current state
+───────────────────────────────────────────── */
 export function syncSettingsUI() {
-  const pw    = state.user.txPowerW    ?? 100;
   const lc    = state.user.licenseClass ?? 'A';
+  const pw    = state.user.txPowerW    ?? 100;
   const qrp   = state.user.qrpMode     ?? false;
   const theme = state.user.theme        ?? 'dark';
   const lang  = state.user.lang         ?? 'en';
   const grid  = state.user.grid         ?? '';
 
-  // License buttons
+  /* License buttons */
   document.querySelectorAll('[data-lic]').forEach(btn => {
-    btn.classList.toggle('btn--primary',   btn.dataset.lic === lc);
-    btn.classList.toggle('btn--secondary', btn.dataset.lic !== lc);
+    const active = btn.dataset.lic === lc;
+    btn.className = active ? 'btn btn--primary' : 'btn btn--secondary';
+    btn.style.justifyContent = 'space-between';
+    btn.style.minHeight      = '44px';
+    btn.style.padding        = '0 var(--space-4)';
   });
 
-  // Power slider + display
-  const slider = document.getElementById('pwr-slider');
+  /* Power slider */
   const maxMap = { C: 25, B: 100, A: 1500 };
+  const max    = maxMap[lc] ?? 1500;
+  const slider = document.getElementById('pwr-slider');
   if (slider) {
-    slider.max   = maxMap[lc] ?? 1500;
-    slider.value = Math.min(pw, maxMap[lc] ?? 1500);
-    updatePowerDisplay(slider.value);
+    slider.max   = max;
+    slider.value = Math.min(pw, max);
+    updatePowerDisplay(Math.min(pw, max));
   }
+  const midEl = document.getElementById('pwr-mid');
+  const maxEl = document.getElementById('pwr-max-label');
+  if (midEl) midEl.textContent = lc === 'C' ? '15W' : lc === 'B' ? '50W' : '100W';
+  if (maxEl) maxEl.textContent = max + 'W';
 
-  // QRP
+  /* QRP toggle */
   const qrpEl = document.getElementById('qrp-toggle');
   if (qrpEl) qrpEl.checked = qrp;
 
-  // Theme
+  /* Theme */
   const themeEl = document.getElementById('theme-toggle');
-  if (themeEl) themeEl.checked = (theme === 'light');
+  if (themeEl) themeEl.checked = theme === 'light';
 
-  // Lang
+  /* Language */
   const langEl = document.getElementById('lang-select');
   if (langEl) langEl.value = lang;
 
-  // Grid
+  /* Grid */
   const gridEl = document.getElementById('grid-input');
   if (gridEl) gridEl.value = grid;
 
-  // NOAA config
-  const timeoutEl  = document.getElementById('cfg-timeout');
-  const pollEl     = document.getElementById('cfg-poll');
-  if (timeoutEl) timeoutEl.value = NOAA_CONFIG.timeout_ms / 1000;
-  if (pollEl)    pollEl.value    = NOAA_CONFIG.poll_interval;
+  /* NOAA config inputs */
+  const to  = document.getElementById('cfg-timeout');
+  const pol = document.getElementById('cfg-poll');
+  const fsfi = document.getElementById('cfg-fallback-sfi');
+  const fkp  = document.getElementById('cfg-fallback-kp');
+  if (to)   to.value   = NOAA_CONFIG.timeout_ms / 1000;
+  if (pol)  pol.value  = NOAA_CONFIG.poll_interval;
+  if (fsfi) fsfi.value = NOAA_CONFIG.fallback_sfi;
+  if (fkp)  fkp.value  = NOAA_CONFIG.fallback_kp;
 }
 
-/* ── API test panel ── */
+/* ─────────────────────────────────────────────
+   API test panel
+───────────────────────────────────────────── */
+let _testing = false;
+
 function renderApiPanel() {
   const panel = document.getElementById('api-test-panel');
   if (!panel) return;
 
-  const staleness = noaaStaleness();
-  const age       = state.propagation.fetchedAt
-    ? ageMinutes(state.propagation.fetchedAt) : null;
+  const age     = state.propagation.fetchedAt ? ageMinutes(state.propagation.fetchedAt) : null;
+  const kp      = state.propagation.kp;
+  const sfi     = state.propagation.sfi;
+  const stale   = noaaStaleness();
 
-  const staleColor = staleness === 'stale' ? 'var(--color-bad-text)'
-    : staleness === 'warn' ? 'var(--color-warn-text)'
-    : staleness === 'ok'   ? 'var(--color-good-text)'
-    : 'var(--color-text-muted)';
+  const connColor = state.connections.noaaOk === true  ? 'var(--color-good-text)'
+                  : state.connections.noaaOk === false ? 'var(--color-bad-text)'
+                  : 'var(--color-text-muted)';
+  const connIcon  = state.connections.noaaOk === true  ? '✅'
+                  : state.connections.noaaOk === false ? '❌'
+                  : '○';
+  const staleColor = stale === 'ok'    ? 'var(--color-good-text)'
+                   : stale === 'warn'  ? 'var(--color-warn-text)'
+                   : stale === 'stale' ? 'var(--color-bad-text)'
+                   : 'var(--color-text-muted)';
 
-  // Overall status
-  const overallOk  = state.connections.noaaOk;
-  const kp  = state.propagation.kp;
-  const sfi = state.propagation.sfi;
+  /* ── Endpoint rows ── */
+  const epRows = Object.entries(ENDPOINTS).map(([key, ep]) => {
+    const st   = apiStatus[key];
+    const icon = st.ok === true ? '✅' : st.ok === false ? '❌' : '○';
+    const col  = st.ok === true ? 'var(--color-good-text)'
+               : st.ok === false ? 'var(--color-bad-text)'
+               : 'var(--color-text-muted)';
+    const val  = st.value != null
+      ? ` <strong>${typeof st.value === 'number' ? st.value.toFixed(key === 'kp' ? 2 : 0) : st.value}</strong>`
+      : '';
+    const lat  = st.latency_ms != null ? ` · ${st.latency_ms}ms` : '';
+    const err  = st.error
+      ? `<div style="font-size:10px;color:var(--color-bad-text);font-family:var(--font-mono);
+                     margin-top:2px;word-break:break-all">${st.error}</div>`
+      : '';
 
-  let html = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-3)">
-      <div>
-        <div style="font-size:var(--text-sm);font-weight:var(--weight-bold)">
-          ${overallOk === true  ? '✅ Connected' :
-            overallOk === false ? '❌ No connection' :
-            '⏳ Not yet tested'}
-        </div>
-        <div style="font-size:var(--text-xs);font-family:var(--font-mono);
-                    color:${staleColor};margin-top:2px">
-          ${age !== null
-            ? `Kp ${kp?.toFixed(2) ?? '—'} · SFI ${sfi ?? '—'} · ${age}m ago`
-            : 'No data — tap Test to fetch live'}
-        </div>
-      </div>
-      <button class="btn btn--secondary" id="api-test-btn"
-              style="font-size:var(--text-sm);min-height:40px"
-              onclick="window._pwTestAPI()"
-              ${testInProgress ? 'disabled' : ''}>
-        ${testInProgress ? '⏳ Testing…' : '🔌 Test API'}
-      </button>
-    </div>`;
-
-  // Per-endpoint results
-  html += `<div style="display:flex;flex-direction:column;gap:var(--space-2)">`;
-  for (const [key, ep] of Object.entries(ENDPOINTS)) {
-    const st = apiStatus[key];
-    const icon = st.ok === true  ? '✅'
-               : st.ok === false ? '❌'
-               : '○';
-    const color = st.ok === true  ? 'var(--color-good-text)'
-                : st.ok === false ? 'var(--color-bad-text)'
-                : 'var(--color-text-muted)';
-    const latency = st.latency_ms != null ? ` · ${st.latency_ms}ms` : '';
-    const value   = st.value != null ? ` · ${typeof st.value === 'number' ? st.value.toFixed(key === 'kp' ? 2 : 0) : st.value}` : '';
-    const errMsg  = st.error ? `<div style="font-size:var(--text-xs);color:var(--color-bad-text);
-                                  margin-top:2px;font-family:var(--font-mono)">${st.error}</div>` : '';
-
-    html += `
+    return `
       <div style="background:var(--color-bg-tertiary);border:1px solid var(--color-border);
-                  border-radius:var(--radius-md);padding:var(--space-2) var(--space-3)">
+                  border-radius:var(--radius-md);padding:10px var(--space-3)">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:var(--text-sm);color:${color}">${icon} ${ep.label}</span>
-          <span style="font-size:var(--text-xs);font-family:var(--font-mono);
-                       color:var(--color-text-secondary)">${value}${latency}</span>
+          <span style="font-size:var(--text-sm);color:${col}">${icon} ${ep.label}</span>
+          <span style="font-size:11px;font-family:var(--font-mono);
+                       color:var(--color-text-secondary)">${val}${lat}</span>
         </div>
-        ${errMsg}
-        <div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-top:2px;
-                    word-break:break-all">${ep.url.replace('https://','')}</div>
+        ${err}
+        <div style="font-size:10px;color:var(--color-text-muted);margin-top:3px;
+                    word-break:break-all;font-family:var(--font-mono)">
+          ${ep.url.replace('https://services.swpc.noaa.gov','')}
+        </div>
       </div>`;
-  }
-  html += `</div>`;
+  }).join('');
 
-  // Debug log area (last fetch details)
-  html += `
-    <div style="margin-top:var(--space-3)">
-      <div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-bottom:var(--space-2)">
-        Config
+  /* ── Config fields ── */
+  const cfgFields = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2);
+                margin-top:var(--space-3)">
+      <div class="field">
+        <label class="field__label" style="font-size:11px">Timeout (sec)</label>
+        <input class="field__input" id="cfg-timeout" type="number" min="3" max="30"
+               value="${NOAA_CONFIG.timeout_ms / 1000}"
+               style="font-family:var(--font-mono)"
+               onchange="window._pwSaveCfg()"/>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2)">
-        <div class="field">
-          <label class="field__label" style="font-size:var(--text-xs)">Timeout (sec)</label>
-          <input class="field__input" id="cfg-timeout" type="number"
-                 min="3" max="30" step="1"
-                 value="${NOAA_CONFIG.timeout_ms / 1000}"
-                 style="font-family:var(--font-mono)"
-                 onchange="window._pwSaveCfg()"/>
-        </div>
-        <div class="field">
-          <label class="field__label" style="font-size:var(--text-xs)">Poll interval (min)</label>
-          <input class="field__input" id="cfg-poll" type="number"
-                 min="1" max="60" step="1"
-                 value="${NOAA_CONFIG.poll_interval}"
-                 style="font-family:var(--font-mono)"
-                 onchange="window._pwSaveCfg()"/>
-        </div>
+      <div class="field">
+        <label class="field__label" style="font-size:11px">Poll interval (min)</label>
+        <input class="field__input" id="cfg-poll" type="number" min="1" max="60"
+               value="${NOAA_CONFIG.poll_interval}"
+               style="font-family:var(--font-mono)"
+               onchange="window._pwSaveCfg()"/>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2);margin-top:var(--space-2)">
-        <div class="field">
-          <label class="field__label" style="font-size:var(--text-xs)">Fallback SFI</label>
-          <input class="field__input" id="cfg-fallback-sfi" type="number"
-                 min="60" max="300" step="5"
-                 value="${NOAA_CONFIG.fallback_sfi}"
-                 style="font-family:var(--font-mono)"
-                 onchange="window._pwSaveCfg()"/>
-        </div>
-        <div class="field">
-          <label class="field__label" style="font-size:var(--text-xs)">Fallback Kp</label>
-          <input class="field__input" id="cfg-fallback-kp" type="number"
-                 min="0" max="9" step="0.5"
-                 value="${NOAA_CONFIG.fallback_kp}"
-                 style="font-family:var(--font-mono)"
-                 onchange="window._pwSaveCfg()"/>
-        </div>
+      <div class="field">
+        <label class="field__label" style="font-size:11px">Fallback SFI</label>
+        <input class="field__input" id="cfg-fallback-sfi" type="number" min="60" max="300"
+               value="${NOAA_CONFIG.fallback_sfi}"
+               style="font-family:var(--font-mono)"
+               onchange="window._pwSaveCfg()"/>
+      </div>
+      <div class="field">
+        <label class="field__label" style="font-size:11px">Fallback Kp</label>
+        <input class="field__input" id="cfg-fallback-kp" type="number" min="0" max="9" step="0.5"
+               value="${NOAA_CONFIG.fallback_kp}"
+               style="font-family:var(--font-mono)"
+               onchange="window._pwSaveCfg()"/>
       </div>
     </div>`;
 
-  panel.innerHTML = html;
+  panel.innerHTML = `
+    <!-- Status header -->
+    <div style="display:flex;justify-content:space-between;align-items:center;
+                margin-bottom:var(--space-3)">
+      <div>
+        <div style="font-size:var(--text-sm);font-weight:var(--weight-bold);
+                    color:${connColor}">
+          ${connIcon} ${state.connections.noaaOk === true  ? 'NOAA connected'
+                       : state.connections.noaaOk === false ? 'NOAA not reachable'
+                       : 'Not yet tested'}
+        </div>
+        ${age !== null ? `
+        <div style="font-size:11px;font-family:var(--font-mono);
+                    color:${staleColor};margin-top:2px">
+          Kp <strong>${kp?.toFixed(2) ?? '—'}</strong>
+          &nbsp;·&nbsp;SFI <strong>${sfi ?? '—'}</strong>
+          &nbsp;·&nbsp;${age}m ago
+        </div>` : `
+        <div style="font-size:11px;color:var(--color-text-muted);margin-top:2px">
+          No data yet — tap Test API
+        </div>`}
+      </div>
+
+      <!-- Test button -->
+      <button onclick="window._pwTestAPI()"
+              ${_testing ? 'disabled' : ''}
+              style="
+                display:flex;align-items:center;gap:6px;
+                background:${_testing ? 'var(--color-bg-tertiary)' : 'var(--color-accent)'};
+                color:${_testing ? 'var(--color-text-muted)' : '#fff'};
+                border:none;border-radius:var(--radius-md);
+                padding:10px var(--space-4);font-size:var(--text-sm);
+                font-weight:var(--weight-bold);cursor:pointer;
+                min-height:44px;white-space:nowrap">
+        ${_testing ? '⏳ Testing…' : '🔌 Test API'}
+      </button>
+    </div>
+
+    <!-- Per-endpoint results -->
+    <div style="display:flex;flex-direction:column;gap:var(--space-2)">
+      ${epRows}
+    </div>
+
+    <!-- Config -->
+    <details style="margin-top:var(--space-3)">
+      <summary style="font-size:var(--text-xs);color:var(--color-text-muted);
+                      cursor:pointer;user-select:none;padding:4px 0">
+        ⚙ Advanced configuration
+      </summary>
+      ${cfgFields}
+    </details>`;
 }
 
-/* ── Power display helper ── */
-export function updatePowerDisplay(v) {
-  v = parseInt(v);
-  const disp = document.getElementById('pwr-display');
-  const dbEl = document.getElementById('pwr-db');
-  const hint = document.getElementById('pwr-hint');
-  if (disp) disp.textContent = v + 'W';
-  if (dbEl) {
-    const db = v === 100 ? 0 : 10 * Math.log10(v / 100);
-    dbEl.textContent = v === 100 ? '(reference 100W)' : `(${db.toFixed(1)} dB vs 100W)`;
-  }
-  if (hint) {
-    if (v <= 5)         hint.textContent = 'QRP range — only high-reliability paths recommended.';
-    else if (v <= 25)   hint.textContent = 'Class C range — significant reduction on marginal paths.';
-    else if (v < 100)   hint.textContent = 'Moderate power — slight reduction on marginal paths.';
-    else if (v === 100) hint.textContent = 'Reference power — no correction applied.';
-    else                hint.textContent = 'High power — reliability scores boosted slightly.';
-  }
-}
+/* ─────────────────────────────────────────────
+   Window-exposed handlers
+───────────────────────────────────────────── */
 
-/* ── Global handlers called from index.html ── */
 window._pwTestAPI = async function() {
-  if (testInProgress) return;
-  testInProgress = true;
+  if (_testing) return;
+  _testing = true;
   renderApiPanel();
+
   try {
     await testAllEndpoints();
-    // If successful, also update live state
-    const kp  = apiStatus.kp.value;
-    const sfi = apiStatus.sfi.value;
-    if (kp !== null || sfi !== null) {
+    const ok = apiStatus.kp.ok || apiStatus.sfi.ok;
+    if (ok) {
       await fetchNOAA();
-      showToast(`API OK — Kp ${kp?.toFixed(2) ?? '—'} · SFI ${sfi ?? '—'}`, 'success');
+      const kp  = state.propagation.kp?.toFixed(2) ?? '—';
+      const sfi = state.propagation.sfi ?? '—';
+      showToast(`✅ NOAA connected — Kp ${kp} · SFI ${sfi}`, 'success');
     } else {
-      showToast('API test failed — check results below', 'error');
+      showToast('❌ All NOAA endpoints failed — see details below', 'error');
     }
+  } catch(e) {
+    showToast(`Error: ${e.message}`, 'error');
   } finally {
-    testInProgress = false;
+    _testing = false;
     renderApiPanel();
   }
 };
@@ -231,44 +262,47 @@ window._pwSaveCfg = function() {
   const p   = parseInt(document.getElementById('cfg-poll')?.value);
   const sfi = parseInt(document.getElementById('cfg-fallback-sfi')?.value);
   const kp  = parseFloat(document.getElementById('cfg-fallback-kp')?.value);
-  if (!isNaN(t) && t >= 3)   NOAA_CONFIG.timeout_ms    = t * 1000;
-  if (!isNaN(p) && p >= 1)   NOAA_CONFIG.poll_interval  = p;
-  if (!isNaN(sfi) && sfi > 0) NOAA_CONFIG.fallback_sfi  = sfi;
-  if (!isNaN(kp) && kp >= 0)  NOAA_CONFIG.fallback_kp   = kp;
-  // Persist to localStorage
-  save('noaa_config', { timeout_ms: NOAA_CONFIG.timeout_ms,
-    poll_interval: NOAA_CONFIG.poll_interval,
-    fallback_sfi: NOAA_CONFIG.fallback_sfi,
-    fallback_kp: NOAA_CONFIG.fallback_kp });
+  if (!isNaN(t)   && t >= 3)   NOAA_CONFIG.timeout_ms    = t * 1000;
+  if (!isNaN(p)   && p >= 1)   NOAA_CONFIG.poll_interval = p;
+  if (!isNaN(sfi) && sfi > 0)  NOAA_CONFIG.fallback_sfi  = sfi;
+  if (!isNaN(kp)  && kp >= 0)  NOAA_CONFIG.fallback_kp   = kp;
+  try {
+    localStorage.setItem('pw_noaa_config', JSON.stringify({
+      timeout_ms: NOAA_CONFIG.timeout_ms,
+      poll_interval: NOAA_CONFIG.poll_interval,
+      fallback_sfi: NOAA_CONFIG.fallback_sfi,
+      fallback_kp: NOAA_CONFIG.fallback_kp,
+    }));
+  } catch {}
   showToast('Configuration saved', 'success');
 };
 
-window._pwSelectLicClass = function(cls, btn) {
+window._pwSelectLicClass = function(cls) {
   document.querySelectorAll('[data-lic]').forEach(b => {
-    b.classList.toggle('btn--primary',   b.dataset.lic === cls);
-    b.classList.toggle('btn--secondary', b.dataset.lic !== cls);
+    const active = b.dataset.lic === cls;
+    b.className = active ? 'btn btn--primary' : 'btn btn--secondary';
+    b.style.justifyContent = 'space-between';
+    b.style.minHeight = '44px';
+    b.style.padding   = '0 var(--space-4)';
   });
-  const maxMap = { C: 25,  B: 100, A: 1500 };
-  const defMap = { C: 25,  B: 100, A: 100  };
+  const maxMap = { C: 25, B: 100, A: 1500 };
+  const defMap = { C: 25, B: 100, A: 100  };
+  const max    = maxMap[cls];
   state.user.licenseClass = cls;
-  const max = maxMap[cls];
 
   const sl = document.getElementById('pwr-slider');
   if (sl) {
     sl.max = max;
-    // Als huidige waarde boven nieuw maximum: reset naar default
-    const cur = parseInt(sl.value);
+    const cur    = parseInt(sl.value);
     const newVal = cur > max ? defMap[cls] : cur;
-    sl.value = newVal;
-    state.user.txPowerW = newVal;
+    sl.value             = newVal;
+    state.user.txPowerW  = newVal;
     updatePowerDisplay(newVal);
   }
-
-  // Pas sliderschaalmarkeringen aan per klasse
-  const midEl   = document.getElementById('pwr-mid');
-  const maxEl   = document.getElementById('pwr-max-label');
-  if (midEl) midEl.textContent  = cls === 'C' ? '15W' : cls === 'B' ? '50W' : '100W';
-  if (maxEl) maxEl.textContent  = max + 'W';
+  const midEl = document.getElementById('pwr-mid');
+  const maxEl = document.getElementById('pwr-max-label');
+  if (midEl) midEl.textContent = cls === 'C' ? '15W' : cls === 'B' ? '50W' : '100W';
+  if (maxEl) maxEl.textContent = max + 'W';
 
   persistUser();
   evaluateAllWatches();
@@ -278,7 +312,6 @@ window._pwSelectLicClass = function(cls, btn) {
 window._pwUpdatePower = function(v) {
   v = parseInt(v);
   state.user.txPowerW = v;
-  // Als slider handmatig boven 5W gaat: QRP mode uit
   if (v > 5 && state.user.qrpMode) {
     state.user.qrpMode = false;
     const tog = document.getElementById('qrp-toggle');
@@ -286,7 +319,6 @@ window._pwUpdatePower = function(v) {
   }
   updatePowerDisplay(v);
   persistUser();
-  // Herbereken alle watches met nieuw vermogen en update UI
   evaluateAllWatches();
   publish('watches', state.watches);
 };
@@ -296,19 +328,12 @@ window._pwToggleQRP = function(on) {
   if (on) {
     state.user.txPowerW = 5;
   } else {
-    // Herstel naar sane default per licentie als QRP uit gaat
-    const maxMap  = { C: 25, B: 100, A: 1500 };
-    const defMap  = { C: 25, B: 100, A: 100  };
-    const lc = state.user.licenseClass ?? 'A';
-    if (state.user.txPowerW <= 5) {
-      state.user.txPowerW = defMap[lc];
-    }
+    const defMap = { C: 25, B: 100, A: 100 };
+    if (state.user.txPowerW <= 5)
+      state.user.txPowerW = defMap[state.user.licenseClass ?? 'A'];
   }
   const sl = document.getElementById('pwr-slider');
-  if (sl) {
-    sl.value = state.user.txPowerW;
-    updatePowerDisplay(state.user.txPowerW);
-  }
+  if (sl) { sl.value = state.user.txPowerW; updatePowerDisplay(state.user.txPowerW); }
   persistUser();
   evaluateAllWatches();
   publish('watches', state.watches);
@@ -322,22 +347,45 @@ window._pwToggleTheme = function(light) {
 
 window._pwChangeLang = function(lang) {
   state.user.lang = lang;
-  import('./i18n.js').then(m => m.setLang(lang));
+  setLang(lang);
   persistUser();
 };
 
 window._pwSaveLocation = function() {
   const val = document.getElementById('grid-input')?.value?.trim().toUpperCase();
-  if (!val) return;
-  const { lat, lon } = gridToLatLon(val);
-  state.user.grid = val;
-  state.user.lat  = lat;
-  state.user.lon  = lon;
-  persistUser();
-  showToast(`Location saved — ${val}`, 'success');
-  evaluateAllWatches();
+  if (!val) { showToast('Enter a valid grid square (e.g. JO20ev)', 'warn'); return; }
+  try {
+    const { lat, lon } = gridToLatLon(val);
+    state.user.grid = val;
+    state.user.lat  = lat;
+    state.user.lon  = lon;
+    persistUser();
+    showToast(`Location saved — ${val} (${lat.toFixed(2)}°, ${lon.toFixed(2)}°)`, 'success');
+    evaluateAllWatches();
+  } catch(e) {
+    showToast('Invalid grid square format', 'error');
+  }
 };
 
-function save(key, val) {
-  try { localStorage.setItem('pw_' + key, JSON.stringify(val)); } catch {}
+/* Power display helper */
+export function updatePowerDisplay(v) {
+  v = parseInt(v);
+  const disp = document.getElementById('pwr-display');
+  const dbEl = document.getElementById('pwr-db');
+  const hint = document.getElementById('pwr-hint');
+  if (disp) disp.textContent = v + 'W';
+  if (dbEl) {
+    const db = v === 100 ? 0 : 10 * Math.log10(v / 100);
+    dbEl.textContent = v === 100
+      ? '(reference 100W)'
+      : `(${db > 0 ? '+' : ''}${db.toFixed(1)} dB vs 100W)`;
+  }
+  if (hint) {
+    if      (v <= 1)   hint.textContent = 'QRPp — extreme QRP, experimental.';
+    else if (v <= 5)   hint.textContent = 'QRP (≤5W) — POTA/SOTA portable. Only strong paths recommended.';
+    else if (v <= 25)  hint.textContent = 'Class C range — significant penalty on marginal paths.';
+    else if (v < 100)  hint.textContent = `${v}W — slight reduction vs 100W on marginal paths.`;
+    else if (v === 100)hint.textContent = 'Reference power — no correction applied.';
+    else               hint.textContent = `${v}W — reliability scores slightly boosted.`;
+  }
 }

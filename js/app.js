@@ -8,7 +8,7 @@ import { initSetup, initNewWatch, setDxccData }  from './setup.js';
 import { watchWindowToICS, downloadICS }        from './export.js';
 import { t, setLang }                           from './i18n.js';
 import { showScreen, showToast }                from './ui.js';
-import { initSettings, syncSettingsUI }         from './settings.js';
+import { initSettings }                         from './settings.js';
 import { formatUTC, formatBothTimes, formatLocal, ageMinutes } from './utils.js';
 
 /* ── Boot ── */
@@ -425,11 +425,7 @@ window.addEventListener('unhandledrejection', e => {
   showToast('Something went wrong — data is safe', 'warn');
 });
 
-// Re-render settings when navigated to
-document.querySelectorAll('.nav-item[data-screen="settings"]').forEach(el => {
-  el.addEventListener('click', () => {
-    setTimeout(() => import('./settings.js').then(m => m.initSettings()), 50);
-  });
+// Settings init is handled via window._pwInitSettings in nav onclick
 });
 
 window.addEventListener('online',  () => { state.connections.offline = false; window._pwFetchNOAA(); });
