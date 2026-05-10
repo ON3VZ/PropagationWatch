@@ -12,8 +12,8 @@ import { showToast }                              from './ui.js';
 import { ageMinutes, gridToLatLon }               from './utils.js';
 import { setLang }                                from './i18n.js';
 
-/* Expose globally for nav onclick */
-window._pwInitSettings = initSettings;
+/* Expose globally — overrides the stub registered in index.html sync script */
+window._pwInitSettings = function() { initSettings(); };
 
 let _subscribed = false;
 let _testing    = false;

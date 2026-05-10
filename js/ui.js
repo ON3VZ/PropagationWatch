@@ -8,19 +8,27 @@ import { state } from './state.js';
 export function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => {
     s.classList.remove('active');
-    s.removeAttribute('hidden');  // remove any stale hidden attributes
+    s.removeAttribute('hidden');
   });
   const el = document.getElementById(`screen-${id}`);
   if (el) {
     el.classList.add('active');
     el.removeAttribute('hidden');
   }
-  state.ui.activeScreen = id;
+  if (state.ui) state.ui.activeScreen = id;
 
   document.querySelectorAll('.nav-item').forEach(n => {
     n.classList.toggle('active', n.dataset.screen === id);
   });
+
+  // If settings screen: init it
+  if (id === 'settings' && window._pwInitSettings) {
+    setTimeout(() => window._pwInitSettings(), 10);
+  }
 }
+
+// Register as global immediately (sync script in HTML provides stub)
+window.showScreen = showScreen;
 
 /* ── Toast system ── */
 export function showToast(message, type = 'info', duration = 4000) {

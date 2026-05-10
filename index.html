@@ -241,6 +241,52 @@
   <div id="toast-container" role="status" aria-live="polite" aria-atomic="false"></div>
 
   <!-- SunCalc — local copy, no CDN -->
+  <script>
+    // Synchronous globals — available immediately, before any module loads
+    // This prevents "showScreen is not defined" errors when nav is clicked
+    
+    var _pendingScreen = null;
+    
+    window.showScreen = function(id) {
+      // If modules not yet loaded, queue the screen
+      if (!window._pwModulesLoaded) {
+        _pendingScreen = id;
+        return;
+      }
+      _doShowScreen(id);
+    };
+    
+    function _doShowScreen(id) {
+      document.querySelectorAll('.screen').forEach(function(s) {
+        s.classList.remove('active');
+      });
+      var el = document.getElementById('screen-' + id);
+      if (el) el.classList.add('active');
+      
+      document.querySelectorAll('.nav-item').forEach(function(n) {
+        n.classList.toggle('active', n.dataset.screen === id);
+      });
+    }
+    window._doShowScreen = _doShowScreen;
+    
+    // Stubs — replaced by real functions when modules load
+    window._pwInitNewWatch  = function() { _pendingScreen = 'setup_new'; };
+    window._pwInitSettings  = function() { _pendingScreen = 'settings'; };
+    window._pwEvaluate      = function() {};
+    window._pwHandleAlarm   = function() {};
+    window._pwHandleExport  = function() {};
+    window._pwHandleDelete  = function() {};
+    window._pwTestAPI       = function() {};
+    window._pwSaveCfg       = function() {};
+    window._pwSelectLicClass= function() {};
+    window._pwUpdatePower   = function() {};
+    window._pwToggleQRP     = function() {};
+    window._pwToggleTheme   = function() {};
+    window._pwChangeLang    = function() {};
+    window._pwSaveLocation  = function() {};
+    window._pwFetchNOAA     = function() {};
+    window.showToast        = function(msg, type) { console.log(type + ': ' + msg); };
+  </script>
   <script src="lib/suncalc.js?v=5"></script>
 
   <!-- App entry point -->

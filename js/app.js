@@ -11,13 +11,17 @@ import { showScreen, showToast }                from './ui.js';
 import { initSettings }                          from './settings.js';
 import { formatUTC, formatBothTimes, formatLocal, ageMinutes } from './utils.js';
 
-/* ── Global bridges (registered before DOMContentLoaded) ── */
+/* ── Register real globals after module load ── */
 window._pwEvaluate = function() {
-  // Imported lazily to avoid circular deps at module parse time
-  import('./watches.js').then(m => {
-    m.evaluateAllWatches();
-    import('./state.js').then(s => s.publish('watches', s.state.watches));
-  });
+  evaluateAllWatches();
+  publish('watches', state.watches);
+};
+
+window._pwFetchNOAA = function() { fetchNOAA(); };
+
+window._pwInitNewWatch = function() {
+  showScreen('setup');
+  initNewWatch();
 };
 
 /* ── Boot ── */
@@ -68,6 +72,26 @@ window.addEventListener('DOMContentLoaded', async () => {
   subscribe('propagation', () => { renderStatusBar(); renderStormBanner(); });
 
   setInterval(fetchNOAA,          5 * 60 * 1000);
+
+  // Mark modules as loaded and process any pending navigation
+  window._pwModulesLoaded = true;
+  window._doShowScreen = function(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    const el = document.getElementById('screen-' + id);
+    if (el) el.classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(n => {
+      n.classList.toggle('active', n.dataset.screen === id);
+    });
+  };
+  window.showScreen = showScreen; // override stub with real function
+  
+  if (window._pendingScreen) {
+    const ps = window._pendingScreen;
+    window._pendingScreen = null;
+    if (ps === 'setup_new') { showScreen('setup'); initNewWatch(); }
+    else if (ps === 'settings') { showScreen('settings'); initSettings(); }
+    else showScreen(ps);
+  }
   setInterval(evaluateAllWatches, 5 * 60 * 1000);
   setInterval(() => {
     const el = document.getElementById('timeline-now');
