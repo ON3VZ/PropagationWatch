@@ -1,7 +1,6 @@
 /** timeline.js — SVG timeline rendering */
 
-import { state }  from './state.js';
-import { subscribe } from './state.js';
+import { state, subscribe } from './state.js';
 import { formatUTC } from './utils.js';
 
 const HOURS   = 24;

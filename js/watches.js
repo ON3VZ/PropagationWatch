@@ -4,7 +4,7 @@ import { state, persistWatches, persistAlarms, publish } from './state.js';
 import { calcReliability, reliabilityToStatus } from './propagation.js';
 import { getGreylineWindows, getSolarElevation } from './greyline.js';
 import { calcDistance, calcBearing, formatUTC, formatCountdown } from './utils.js';
-import { showToast }    from './app.js';
+import { showToast }    from './ui.js';
 import { scheduleNotification } from './notifications.js';
 import { t } from './i18n.js';
 

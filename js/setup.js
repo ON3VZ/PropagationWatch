@@ -5,7 +5,7 @@ import { gridToLatLon, prefixToEntity } from './utils.js';
 import { requestPermission } from './notifications.js';
 import { createWatch } from './watches.js';
 import { t } from './i18n.js';
-import { showScreen } from './app.js';
+import { showScreen, showToast } from './ui.js';
 
 let dxccData = [];
 export function setDxccData(data) { dxccData = data; }

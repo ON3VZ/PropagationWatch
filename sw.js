@@ -4,6 +4,7 @@ const STATIC_ASSETS = [
   '/', '/index.html',
   '/css/tokens.css', '/css/reset.css', '/css/base.css',
   '/css/layout.css', '/css/components.css', '/css/timeline.css', '/css/setup.css',
+  '/js/ui.js',
   '/js/app.js', '/js/state.js', '/js/storage.js', '/js/utils.js',
   '/js/i18n.js', '/js/propagation.js', '/js/greyline.js',
   '/js/noaa.js', '/js/watches.js', '/js/notifications.js', '/js/export.js',
