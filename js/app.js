@@ -2,9 +2,9 @@
 
 import { state, loadPersistedState, subscribe, persistUser, persistWatches } from './state.js';
 import { fetchNOAA, noaaStaleness }             from './noaa.js';
-import { evaluateAllWatches, STATUS_COLOR }     from './watches.js';
+import { evaluateAllWatches, STATUS_COLOR, deleteWatch } from './watches.js';
 import { initTimeline }                         from './timeline.js';
-import { initSetup, setDxccData }               from './setup.js';
+import { initSetup, initNewWatch, setDxccData }  from './setup.js';
 import { watchWindowToICS, downloadICS }        from './export.js';
 import { t, setLang }                           from './i18n.js';
 import { showScreen, showToast }                from './ui.js';
@@ -39,7 +39,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (!state.user.configured) {
     showScreen('setup'); initSetup();
   } else if (action === 'new-watch') {
-    showScreen('setup'); initSetup();
+    showScreen('setup'); initNewWatch();
   } else {
     showScreen('home');
   }
@@ -175,33 +175,39 @@ function watchCardHTML(w) {
   const pct   = Math.round((w.reliability ?? 0) * 100);
   const color = STATUS_COLOR[w.status] ?? 'var(--color-neutral)';
   const pw    = w.txPowerOverride ?? state.user.txPowerW ?? 100;
+  const nw    = w.nextWindow;
 
-  let stateLabel = '', subLabel = '';
+  let stateLabel = '';
+  let windowLine = '';
+
   switch (w.status) {
     case 'OPTIMAL':
-      stateLabel = `● GOOD WINDOW`;
-      subLabel   = w.nextWindow
-        ? `Until ~${formatUTC(w.nextWindow.time)}`
-        : '';
+      stateLabel = '● GOOD WINDOW';
+      windowLine = nw
+        ? `Open now — until ~<strong>${formatUTC(nw.time)}</strong>`
+        : 'Open now';
       break;
     case 'APPROACHING':
-      stateLabel = `◑ OPENING SOON`;
-      subLabel   = w.nextWindow ? `At ${formatUTC(w.nextWindow.time)}` : '';
-      break;
-    case 'WAITING':
-      stateLabel = `○ WAITING`;
-      subLabel   = w.nextWindow
-        ? `Best at ${formatUTC(w.nextWindow.time)} — ${Math.round(w.nextWindow.reliability * 100)}%`
+      stateLabel = '◑ OPENING SOON';
+      windowLine = nw
+        ? `Opens at <strong>${formatUTC(nw.time)}</strong>`
         : '';
       break;
+    case 'WAITING':
+      stateLabel = '○ WAITING';
+      windowLine = nw
+        ? `Next window: <strong>${formatUTC(nw.time)}</strong> · ${Math.round(nw.reliability * 100)}%`
+        : 'Calculating...';
+      break;
     case 'POOR':
-      stateLabel = `✕ CLOSED`;
-      subLabel   = w.nextWindow && w.nextWindow.reliability > 0.1
-        ? `Best: ${formatUTC(w.nextWindow.time)} (${Math.round(w.nextWindow.reliability * 100)}%)`
-        : 'No window expected';
+      stateLabel = '✕ CLOSED';
+      windowLine = nw && nw.reliability > 0.10
+        ? `Best today: <strong>${formatUTC(nw.time)}</strong> · ${Math.round(nw.reliability * 100)}%`
+        : 'No window expected today';
       break;
     default:
       stateLabel = 'INACTIVE';
+      windowLine = '';
   }
 
   return `
@@ -216,17 +222,20 @@ function watchCardHTML(w) {
         <div class="watch-card__meta mono">${w.band} · ${w.mode} · ${(w.distanceKm ?? 0).toLocaleString()} km · ${w.bearingShort ?? 0}°</div>
       </div>
       <div class="watch-card__actions">
-        <button class="btn btn--icon" style="width:36px;height:36px;min-height:unset;font-size:14px"
+        <button class="btn btn--icon" style="width:36px;height:36px;min-height:unset;font-size:16px"
                 title="Set alarm"
                 onclick="event.stopPropagation(); window._pwHandleAlarm && window._pwHandleAlarm('${w.id}')">⏰</button>
+        <button class="btn btn--icon" style="width:36px;height:36px;min-height:unset;font-size:15px;color:var(--color-bad-text)"
+                title="Delete watch"
+                onclick="event.stopPropagation(); window._pwHandleDelete && window._pwHandleDelete('${w.id}')">🗑</button>
       </div>
     </div>
     <div class="watch-card__status">
-      <div>
+      <div style="flex:1;min-width:0">
         <div class="watch-card__state">${stateLabel}</div>
-        <div class="watch-card__sub mono">${subLabel}</div>
+        <div class="watch-card__sub" style="font-size:var(--text-sm);margin-top:3px;color:var(--color-text-secondary)">${windowLine}</div>
       </div>
-      <div class="watch-card__pct">${pct}%</div>
+      <div class="watch-card__pct" style="margin-left:var(--space-3);flex-shrink:0">${pct}%</div>
     </div>
   </div>`;
 }
@@ -352,6 +361,15 @@ function infoRow(label, value) {
 }
 
 /* ── Global handlers (called from inline onclick and other modules) ── */
+window._pwHandleDelete = function(id) {
+  const watch = state.watches.find(w => w.id === id);
+  if (!watch) return;
+  const deleted = deleteWatch(id);
+  if (deleted) {
+    showToast(`Watch "${deleted.label}" deleted`, 'info');
+  }
+};
+
 window._pwHandleAlarm = function(id) {
   const watch = state.watches.find(w => w.id === id);
   if (!watch) return;
@@ -365,6 +383,11 @@ window._pwHandleExport = function(id) {
   const ics = watchWindowToICS(watch, watch.nextWindow);
   downloadICS(ics, `${watch.label}-${watch.band}.ics`);
   showToast('Calendar file downloaded', 'success');
+};
+
+window._pwInitNewWatch = function() {
+  showScreen('setup');
+  initNewWatch();
 };
 
 window._pwFetchNOAA = function() {

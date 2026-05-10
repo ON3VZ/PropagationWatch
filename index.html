@@ -35,7 +35,7 @@
       </svg>
       Overview
     </div>
-    <div class="nav-item" data-screen="setup" onclick="showScreen('setup')" role="button" tabindex="0">
+    <div class="nav-item" data-screen="setup" onclick="window._pwInitNewWatch && window._pwInitNewWatch()" role="button" tabindex="0">
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
         <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.2"/>
         <line x1="10" y1="4" x2="10" y2="16" stroke="currentColor" stroke-width="1.5"/>
@@ -91,8 +91,8 @@
 
       <!-- FAB -->
       <div class="fab-row">
-        <button class="btn btn--secondary" onclick="showScreen('setup')">Quick check</button>
-        <button class="btn btn--primary"   onclick="showScreen('setup')">+ Watch</button>
+        <button class="btn btn--secondary" onclick="window._pwInitNewWatch && window._pwInitNewWatch()">Quick check</button>
+        <button class="btn btn--primary"   onclick="window._pwInitNewWatch && window._pwInitNewWatch()">+ Watch</button>
       </div>
     </section>
 
