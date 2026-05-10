@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PropWatch Debug</title>
+<style>
+body{background:#1A1F2E;color:#E8EAF0;font-family:sans-serif;margin:0;padding:16px}
+.btn{display:block;width:100%;padding:14px;margin:8px 0;border:none;border-radius:8px;
+     font-size:15px;cursor:pointer;font-weight:600}
+.btn-green{background:#1D9E75;color:#fff}
+.btn-grey{background:#2A3044;color:#E8EAF0}
+#log{background:#0D1117;border:1px solid #313754;border-radius:8px;padding:12px;
+     margin-top:16px;font-family:monospace;font-size:12px;white-space:pre-wrap;
+     max-height:300px;overflow-y:auto}
+</style>
+</head>
+<body>
+<h2>🔧 PropWatch Debug</h2>
+<p style="color:#8A8FA8;font-size:13px">Tap buttons — zie resultaat in log</p>
+
+<button class="btn btn-green" onclick="testBtn('Class C 25W')">Class C — max 25W</button>
+<button class="btn btn-green" onclick="testBtn('Class B 100W')">Class B — max 100W</button>
+<button class="btn btn-green" onclick="testBtn('Class A 1500W')">Class A — max 1500W</button>
+<button class="btn btn-grey" onclick="testAPI()">🔌 Test NOAA API</button>
+<button class="btn btn-grey" onclick="testStorage()">💾 Test localStorage</button>
+
+<div id="log">Wachten op input...\n</div>
+
+<script>
+function log(msg) {
+  var el = document.getElementById('log');
+  el.textContent += new Date().toTimeString().slice(0,8) + ' ' + msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+function testBtn(label) {
+  log('✅ Button werkt: ' + label);
+  log('   JS is actief op dit apparaat');
+}
+
+async function testAPI() {
+  log('→ Fetching NOAA Kp...');
+  try {
+    var r = await fetch('https://services.swpc.noaa.gov/json/planetary_k_index_1m.json');
+    log('   HTTP status: ' + r.status);
+    var data = await r.json();
+    var last = data[data.length-1];
+    log('✅ Kp = ' + last.Kp + ' at ' + last.time_tag);
+  } catch(e) {
+    log('❌ Fout: ' + e.message);
+  }
+  
+  log('→ Fetching NOAA SFI...');
+  try {
+    var r2 = await fetch('https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json');
+    log('   HTTP status: ' + r2.status);
+    var d2 = await r2.json();
+    var l2 = d2[d2.length-1];
+    log('✅ SFI = ' + l2.flux + ' at ' + l2['time-tag']);
+  } catch(e2) {
+    log('❌ Fout: ' + e2.message);
+  }
+}
+
+function testStorage() {
+  try {
+    localStorage.setItem('test', '123');
+    var v = localStorage.getItem('test');
+    localStorage.removeItem('test');
+    log('✅ localStorage werkt: ' + v);
+    
+    var keys = Object.keys(localStorage).filter(k => k.startsWith('pw_'));
+    log('   PropWatch opgeslagen data: ' + keys.length + ' sleutels');
+    keys.forEach(function(k) {
+      log('   ' + k + ': ' + localStorage.getItem(k).substring(0,60) + '...');
+    });
+  } catch(e) {
+    log('❌ localStorage fout: ' + e.message);
+  }
+}
+
+log('Pagina geladen. JS werkt.');
+log('User agent: ' + navigator.userAgent.substring(0, 80));
+</script>
+</body>
+</html>

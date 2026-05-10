@@ -1,286 +1,1279 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="description" content="Propagation planner for radio amateurs — ON3VZ/JO20ev">
-  <meta name="theme-color" content="#1A1F2E">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1A1F2E">
+<link rel="manifest" href="manifest.json">
+<title>Propagation Watch</title>
+<style>
+/* ── Reset ── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+     background:#1A1F2E;color:#E8EAF0;min-height:100dvh}
 
-  <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+/* ── CSS Variables ── */
+:root{
+  --bg1:#1A1F2E;--bg2:#222736;--bg3:#2A3044;--bg4:#313754;
+  --tx1:#E8EAF0;--tx2:#9BA3BF;--tx3:#5C6480;
+  --bdr:#313754;--bdr2:#262B3D;
+  --good:#1D9E75;--good-bg:#0D3D2D;--good-tx:#4ECFA0;
+  --warn:#EF9F27;--warn-bg:#3D2A08;--warn-tx:#F9C46A;
+  --bad:#E24B4A; --bad-bg:#3D1010;  --bad-tx:#F09090;
+  --mono:'Courier New',monospace;
+  --r8:8px;--r12:12px;
+  --nav-h:52px;
+}
+[data-theme="light"]{
+  --bg1:#F0F2F8;--bg2:#E4E7F0;--bg3:#D8DCE8;--bg4:#CDD2E0;
+  --tx1:#1A1F2E;--tx2:#3D4560;--tx3:#6B7494;
+  --bdr:#BEC4D4;--bdr2:#CDD2E0;
+  --good-tx:#0E7A58;--warn-tx:#A96B0A;--bad-tx:#C02020;
+}
 
-  <!-- Design system — order matters -->
-  <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/reset.css">
-  <link rel="stylesheet" href="css/base.css">
-  <link rel="stylesheet" href="css/layout.css">
-  <link rel="stylesheet" href="css/components.css">
-  <link rel="stylesheet" href="css/timeline.css">
-  <link rel="stylesheet" href="css/setup.css">
+/* ── Layout ── */
+#nav{position:fixed;bottom:0;left:0;right:0;height:var(--nav-h);
+     background:var(--bg2);border-top:1px solid var(--bdr);
+     display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom)}
+.nav-tab{flex:1;display:flex;flex-direction:column;align-items:center;
+         justify-content:center;gap:3px;font-size:11px;color:var(--tx3);
+         cursor:pointer;border-top:2px solid transparent;padding:6px 4px}
+.nav-tab.active{color:var(--good);border-top-color:var(--good)}
+#main{padding:12px 12px calc(var(--nav-h) + 12px + env(safe-area-inset-bottom))}
 
-  <title>Propagation Watch</title>
+/* ── Screens ── */
+.screen{display:none}
+.screen.active{display:block}
+
+/* ── Cards ── */
+.card{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r12);
+      padding:14px 16px;margin-bottom:12px}
+
+/* ── Watch card ── */
+.wcard{border-left:3px solid var(--bdr);cursor:pointer;transition:background .1s}
+.wcard:hover{background:var(--bg3)}
+.wcard-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.wcard-name{font-weight:600;font-size:15px}
+.wcard-meta{font-size:11px;color:var(--tx2);font-family:var(--mono);margin-top:2px}
+.wcard-actions{display:flex;gap:6px}
+.wcard-bottom{display:flex;justify-content:space-between;align-items:center}
+.wcard-state{font-size:12px;font-weight:600}
+.wcard-sub{font-size:11px;color:var(--tx2);margin-top:2px}
+.wcard-pct{font-family:var(--mono);font-size:22px;font-weight:700;margin-left:12px}
+.pwr-badge{font-family:var(--mono);font-size:10px;background:var(--bg3);
+           border:1px solid var(--bdr);border-radius:20px;padding:1px 7px;
+           margin-left:8px;vertical-align:middle}
+
+/* ── Status bar ── */
+#statusbar{display:flex;align-items:center;gap:12px;font-family:var(--mono);
+           font-size:12px;padding:8px 0;border-bottom:1px solid var(--bdr2);
+           margin-bottom:12px;color:var(--tx2)}
+#statusbar .val{color:var(--tx1);font-weight:600}
+#statusbar .kp-ok{color:var(--good-tx)}
+#statusbar .kp-warn{color:var(--warn-tx)}
+#statusbar .kp-bad{color:var(--bad-tx)}
+.refresh-btn{margin-left:auto;background:var(--bg3);border:1px solid var(--bdr);
+             border-radius:6px;padding:4px 10px;color:var(--tx2);cursor:pointer;
+             font-size:12px}
+
+/* ── Timeline ── */
+#timeline-wrap{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r12);
+               padding:10px;margin-bottom:12px}
+#timeline-hdr{display:flex;justify-content:space-between;font-size:11px;
+              color:var(--tx3);font-family:var(--mono);margin-bottom:6px}
+#timeline-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+#timeline-svg{display:block}
+
+/* ── FAB row ── */
+.fab-row{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+.fab{border:none;border-radius:var(--r8);padding:11px 18px;font-size:13px;
+     font-weight:600;cursor:pointer}
+.fab-pri{background:var(--good);color:#fff}
+.fab-sec{background:var(--bg3);color:var(--tx2);border:1px solid var(--bdr)}
+
+/* ── Empty state ── */
+.empty{text-align:center;padding:48px 16px;color:var(--tx3);font-size:14px}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;justify-content:center;
+     min-height:44px;padding:0 16px;border-radius:var(--r8);border:none;
+     font-size:14px;font-weight:600;cursor:pointer;width:100%;margin-top:8px}
+.btn-pri{background:var(--good);color:#fff}
+.btn-sec{background:var(--bg3);color:var(--tx1);border:1px solid var(--bdr)}
+.btn-ico{width:36px;height:36px;min-height:unset;padding:0;background:var(--bg3);
+         border:1px solid var(--bdr);border-radius:var(--r8);color:var(--tx2);font-size:15px}
+.btn-del{color:var(--bad-tx)}
+
+/* ── Form ── */
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12px;color:var(--tx2);margin-bottom:5px;font-weight:500}
+.field input,.field select{width:100%;background:var(--bg3);border:1px solid var(--bdr);
+  border-radius:var(--r8);padding:11px 12px;color:var(--tx1);font-size:14px;
+  font-family:inherit;outline:none}
+.field input:focus,.field select:focus{border-color:var(--good)}
+.field-hint{font-size:11px;color:var(--good);font-family:var(--mono);margin-top:4px;min-height:14px}
+.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field-hint-warn{color:var(--warn-tx)}
+
+/* ── Suggestion grid ── */
+.sugg-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.sugg-btn{background:var(--bg3);border:1px solid var(--bdr);border-radius:var(--r8);
+          padding:10px 12px;cursor:pointer;text-align:left;transition:border-color .1s}
+.sugg-btn:hover,.sugg-btn.sel{border-color:var(--good)}
+.sugg-pre{font-family:var(--mono);font-weight:700;font-size:13px;color:var(--tx1)}
+.sugg-name{font-size:11px;color:var(--tx2);margin-top:2px}
+.sugg-dist{font-size:10px;color:var(--tx3);font-family:var(--mono)}
+
+/* ── Setup progress ── */
+.prog-bar{display:flex;gap:5px;margin-bottom:20px}
+.prog-dot{height:4px;flex:1;border-radius:2px;background:var(--bdr)}
+.prog-dot.done{background:var(--good)}
+.prog-dot.active{background:var(--warn)}
+.setup-title{font-size:20px;font-weight:700;margin-bottom:6px}
+.setup-sub{font-size:13px;color:var(--tx2);margin-bottom:20px;line-height:1.5}
+.setup-skip{width:100%;background:none;border:none;color:var(--tx3);
+            font-size:13px;cursor:pointer;padding:10px;margin-top:4px}
+
+/* ── Toggle ── */
+.toggle-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0}
+.toggle-wrap{position:relative;width:50px;height:28px;flex-shrink:0}
+.toggle-wrap input{opacity:0;width:0;height:0}
+.toggle-track{position:absolute;inset:0;background:var(--bg4);border:1px solid var(--bdr);
+              border-radius:14px;cursor:pointer;transition:background .2s}
+.toggle-wrap input:checked+.toggle-track{background:var(--good);border-color:var(--good)}
+.toggle-track::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;
+                     background:#fff;border-radius:50%;transition:transform .2s}
+.toggle-wrap input:checked+.toggle-track::after{transform:translateX(22px)}
+
+/* ── Detail screen ── */
+.det-back{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.det-back-btn{background:var(--bg3);border:1px solid var(--bdr);border-radius:var(--r8);
+              width:40px;height:40px;font-size:18px;cursor:pointer;color:var(--tx1);
+              display:flex;align-items:center;justify-content:center}
+.big-num{font-family:var(--mono);font-size:52px;font-weight:700;line-height:1}
+.big-lbl{font-size:12px;color:var(--tx2);margin-top:4px}
+.info-table{width:100%}
+.info-row{display:flex;justify-content:space-between;padding:5px 0;
+          border-bottom:1px solid var(--bdr2);font-size:13px}
+.info-row:last-child{border-bottom:none}
+.info-key{color:var(--tx2)}
+.info-val{font-family:var(--mono);color:var(--tx1)}
+.next-win-box{border-radius:var(--r8);padding:14px;margin:12px 0}
+.det-btn-row{display:flex;gap:8px;margin-top:12px}
+.det-btn-row .btn{margin-top:0}
+
+/* ── Storm banner ── */
+#storm-banner{background:var(--bad-bg);border:1px solid var(--bad);border-radius:var(--r8);
+              padding:10px 14px;margin-bottom:12px;display:none;
+              justify-content:space-between;align-items:center;gap:12px}
+#storm-banner.show{display:flex}
+
+/* ── Toast ── */
+#toasts{position:fixed;bottom:calc(var(--nav-h) + 8px + env(safe-area-inset-bottom));
+        left:12px;right:12px;z-index:200;display:flex;flex-direction:column;gap:6px}
+.toast{padding:12px 14px;border-radius:var(--r8);font-size:13px;
+       animation:toast-in .2s ease;pointer-events:none}
+.toast-ok{background:var(--good-bg);color:var(--good-tx);border:1px solid var(--good)}
+.toast-warn{background:var(--warn-bg);color:var(--warn-tx);border:1px solid var(--warn)}
+.toast-err{background:var(--bad-bg);color:var(--bad-tx);border:1px solid var(--bad)}
+.toast-info{background:var(--bg4);color:var(--tx1);border:1px solid var(--bdr)}
+@keyframes toast-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── Settings ── */
+.settings-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.lic-list{display:flex;flex-direction:column;gap:8px}
+.lic-btn{width:100%;background:var(--bg3);border:1px solid var(--bdr);border-radius:var(--r8);
+         padding:12px 16px;display:flex;justify-content:space-between;align-items:center;
+         cursor:pointer;font-size:14px;color:var(--tx1)}
+.lic-btn.active{background:var(--good-bg);border-color:var(--good);color:var(--good-tx)}
+.lic-max{font-family:var(--mono);font-size:12px;color:var(--tx3)}
+.lic-btn.active .lic-max{color:var(--good-tx)}
+.api-row{background:var(--bg3);border:1px solid var(--bdr);border-radius:var(--r8);
+         padding:10px 12px;margin-bottom:6px}
+.api-row-top{display:flex;justify-content:space-between;align-items:center}
+.api-url{font-size:10px;color:var(--tx3);font-family:var(--mono);margin-top:3px;word-break:break-all}
+.api-err{font-size:10px;color:var(--bad-tx);font-family:var(--mono);margin-top:2px}
+</style>
 </head>
 <body>
 
-  <!-- Navigation — desktop top / mobile bottom -->
-  <nav id="app-nav" role="navigation" aria-label="Main navigation">
-    <div class="nav-item active" data-screen="home" onclick="showScreen('home')" role="button" tabindex="0">
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-        <circle cx="10" cy="10" r="3.5" fill="currentColor"/>
-        <circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1" fill="none" opacity=".5"/>
-        <circle cx="10" cy="10" r="9"   stroke="currentColor" stroke-width=".5" fill="none" opacity=".25"/>
-        <line x1="10" y1="1" x2="10" y2="4.5" stroke="currentColor" stroke-width="1.5"/>
-      </svg>
-      Overview
+<!-- Nav -->
+<nav id="nav">
+  <div class="nav-tab active" id="tab-home" onclick="goHome()">
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+      <circle cx="11" cy="11" r="3.5" fill="currentColor"/>
+      <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.2" fill="none" opacity=".5"/>
+      <line x1="11" y1="1" x2="11" y2="5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    Overview
+  </div>
+  <div class="nav-tab" id="tab-setup" onclick="goNewWatch()">
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+      <circle cx="11" cy="11" r="9" stroke="currentColor" stroke-width="1.2"/>
+      <line x1="11" y1="5" x2="11" y2="17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      <line x1="5" y1="11" x2="17" y2="11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </svg>
+    + Watch
+  </div>
+  <div class="nav-tab" id="tab-settings" onclick="goSettings()">
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+      <circle cx="11" cy="11" r="3" stroke="currentColor" stroke-width="1.2"/>
+      <path d="M11 3v2M11 17v2M3 11h2M17 11h2M5.64 5.64l1.42 1.42M13.94 13.94l1.42 1.42M5.64 16.36l1.42-1.42M13.94 8.06l1.42-1.42"
+            stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+    </svg>
+    Settings
+  </div>
+</nav>
+
+<!-- Toasts -->
+<div id="toasts"></div>
+
+<main id="main">
+
+<!-- ══ HOME ══ -->
+<section id="screen-home" class="screen active">
+  <div id="storm-banner">
+    <div>
+      <div id="storm-title" style="font-weight:600;color:var(--bad-tx)"></div>
+      <div id="storm-sub" style="font-size:12px;color:var(--bad-tx)"></div>
     </div>
-    <div class="nav-item" data-screen="setup" onclick="window._pwInitNewWatch && window._pwInitNewWatch()" role="button" tabindex="0">
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-        <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.2"/>
-        <line x1="10" y1="4" x2="10" y2="16" stroke="currentColor" stroke-width="1.5"/>
-        <line x1="4"  y1="10" x2="16" y2="10" stroke="currentColor" stroke-width="1.5"/>
-      </svg>
-      + Watch
+  </div>
+  <div id="statusbar">
+    <span>Kp <span class="val" id="sb-kp">—</span></span>
+    <span>SFI <span class="val" id="sb-sfi">—</span></span>
+    <span id="sb-g" style="font-size:11px"></span>
+    <span id="sb-age" style="font-size:11px"></span>
+    <button class="refresh-btn" onclick="doRefresh()">↺</button>
+  </div>
+  <div id="timeline-wrap">
+    <div id="timeline-hdr">
+      <span>24h timeline</span>
+      <span id="tl-now" style="font-family:var(--mono)"></span>
     </div>
-    <div class="nav-item" data-screen="settings" onclick="showScreen('settings'); window._pwInitSettings && window._pwInitSettings()" role="button" tabindex="0">
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-        <circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.2"/>
-        <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.22 4.22l1.42 1.42M14.36 14.36l1.42 1.42M4.22 15.78l1.42-1.42M14.36 5.64l1.42-1.42"
-              stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-      </svg>
-      Settings
+    <div id="timeline-scroll">
+      <svg id="timeline-svg" height="80" style="display:block"></svg>
     </div>
-  </nav>
+  </div>
+  <div id="watch-list"></div>
+  <div class="fab-row">
+    <button class="fab fab-sec" onclick="goNewWatch()">Quick check</button>
+    <button class="fab fab-pri" onclick="goNewWatch()">+ Watch</button>
+  </div>
+</section>
 
-  <!-- Screens -->
-  <main id="app-root" role="main">
+<!-- ══ WATCH DETAIL ══ -->
+<section id="screen-detail" class="screen">
+  <div class="det-back">
+    <button class="det-back-btn" onclick="goHome()">←</button>
+    <span id="det-title" style="font-weight:600;font-size:15px"></span>
+  </div>
+  <div id="det-body"></div>
+</section>
 
-    <!-- ── Home screen ── -->
-    <section id="screen-home" class="screen active" aria-label="Overview">
-      <h1 class="sr-only">Propagation Watch — Overview</h1>
+<!-- ══ SETUP ══ -->
+<section id="screen-setup" class="screen">
+  <div id="setup-body"></div>
+</section>
 
-      <!-- Storm banner (hidden by default) -->
-      <div id="storm-banner" class="storm-banner" hidden aria-live="polite"></div>
+<!-- ══ SETTINGS ══ -->
+<section id="screen-settings" class="screen">
+  <div class="settings-head">
+    <button class="det-back-btn" onclick="goHome()">←</button>
+    <h2 style="font-size:18px;font-weight:700">Settings</h2>
+  </div>
 
-      <!-- Status bar -->
-      <div id="status-bar" class="status-bar" role="status" aria-live="polite">
-        <span class="status-bar__label" style="font-size:var(--text-xs);color:var(--color-text-muted)">Loading data…</span>
+  <!-- API -->
+  <div class="card">
+    <h3 style="font-weight:600;margin-bottom:12px">📡 Data Sources</h3>
+    <div id="api-status-box" style="font-size:13px;color:var(--tx2);margin-bottom:10px">
+      Tap Test API to check NOAA connectivity.
+    </div>
+    <button class="btn btn-sec" id="api-test-btn" onclick="doTestAPI()" style="margin-top:0">
+      🔌 Test API
+    </button>
+    <div id="api-endpoints" style="margin-top:10px"></div>
+  </div>
+
+  <!-- Power -->
+  <div class="card">
+    <h3 style="font-weight:600;margin-bottom:12px">⚡ Power &amp; License</h3>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:8px">License class</label>
+      <div class="lic-list">
+        <button class="lic-btn" id="lic-C" onclick="setLicClass('C')">
+          <span style="font-weight:700">Class C</span>
+          <span class="lic-max">max 25W</span>
+        </button>
+        <button class="lic-btn" id="lic-B" onclick="setLicClass('B')">
+          <span style="font-weight:700">Class B</span>
+          <span class="lic-max">max 100W</span>
+        </button>
+        <button class="lic-btn active" id="lic-A" onclick="setLicClass('A')">
+          <span style="font-weight:700">Class A</span>
+          <span class="lic-max">max 1500W</span>
+        </button>
       </div>
-
-      <!-- 24h Timeline -->
-      <div class="timeline-wrap" aria-label="24-hour propagation timeline">
-        <div class="timeline-header">
-          <span>24h timeline</span>
-          <span id="timeline-now" class="mono" aria-live="polite"></span>
-        </div>
-        <div class="timeline-scroll" role="img" aria-label="Timeline showing band conditions over 24 hours">
-          <svg id="timeline-svg" class="timeline-svg" width="100%" height="80"
-               viewBox="0 0 600 80" preserveAspectRatio="xMinYMid meet">
-            <text x="50%" y="50%" text-anchor="middle" fill="var(--color-text-muted)" font-size="13">Loading…</text>
-          </svg>
-        </div>
+    </div>
+    <div>
+      <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:6px">
+        Transmit power: <span id="pwr-val" style="font-family:var(--mono);color:var(--tx1)">100W</span>
+        <span id="pwr-db" style="font-size:11px;color:var(--tx3)"> (ref 100W)</span>
+      </label>
+      <input type="range" id="pwr-slider" min="1" max="1500" step="1" value="100"
+             oninput="setPower(this.value)" style="width:100%"/>
+      <div style="display:flex;justify-content:space-between;font-size:10px;
+                  color:var(--tx3);font-family:var(--mono);margin-top:4px">
+        <span>1W</span><span>5W</span><span id="pwr-mid">100W</span><span id="pwr-max">1500W</span>
       </div>
+      <div id="pwr-hint" style="font-size:12px;color:var(--tx3);margin-top:6px"></div>
+    </div>
+    <div class="toggle-row" style="margin-top:14px">
+      <span style="font-size:13px">QRP mode (≤ 5W)</span>
+      <label class="toggle-wrap">
+        <input type="checkbox" id="qrp-tog" onchange="setQRP(this.checked)"/>
+        <span class="toggle-track"></span>
+      </label>
+    </div>
+  </div>
 
-      <!-- Watch list -->
-      <div id="watch-list" class="watches-grid" role="list" aria-label="Watch list">
-        <div style="text-align:center;padding:var(--space-8);color:var(--color-text-muted);font-size:var(--text-sm)">
-          Loading watches…
-        </div>
-      </div>
+  <!-- Location -->
+  <div class="card">
+    <h3 style="font-weight:600;margin-bottom:12px">📍 Location</h3>
+    <div class="field">
+      <label>Grid square</label>
+      <input id="grid-inp" placeholder="e.g. JO20ev" autocapitalize="characters" style="text-transform:uppercase"/>
+    </div>
+    <button class="btn btn-pri" onclick="saveLocation()">Save location</button>
+  </div>
 
-      <!-- FAB -->
-      <div class="fab-row">
-        <button class="btn btn--secondary" onclick="window._pwInitNewWatch && window._pwInitNewWatch()">Quick check</button>
-        <button class="btn btn--primary"   onclick="window._pwInitNewWatch && window._pwInitNewWatch()">+ Watch</button>
-      </div>
-    </section>
+  <!-- Display -->
+  <div class="card">
+    <h3 style="font-weight:600;margin-bottom:12px">🎨 Display</h3>
+    <div class="field" style="margin-bottom:12px">
+      <label>Language</label>
+      <select id="lang-sel" onchange="saveLang(this.value)">
+        <option value="en">English</option>
+        <option value="nl">Nederlands</option>
+      </select>
+    </div>
+    <div class="toggle-row">
+      <span style="font-size:13px">Light theme</span>
+      <label class="toggle-wrap">
+        <input type="checkbox" id="theme-tog" onchange="setTheme(this.checked)"/>
+        <span class="toggle-track"></span>
+      </label>
+    </div>
+  </div>
+</section>
 
-    <!-- ── Watch detail screen ── -->
-    <section id="screen-detail" class="screen" aria-label="Watch detail"></section>
+</main>
 
-    <!-- ── Setup / new watch screen ── -->
-    <section id="screen-setup" class="screen" aria-label="Setup">
-      <div class="setup-screen">
-        <div class="setup-progress" role="progressbar" aria-valuemin="1" aria-valuemax="4">
-          <div class="setup-progress__dot setup-progress__dot--active"></div>
-          <div class="setup-progress__dot"></div>
-          <div class="setup-progress__dot"></div>
-          <div class="setup-progress__dot"></div>
-        </div>
-        <div id="setup-step-label" class="setup-step-label">Step 1 of 4</div>
-        <div id="setup-content"></div>
-      </div>
-    </section>
+<!-- SunCalc -->
+<script src="lib/suncalc.js"></script>
 
-    <!-- ── Settings screen ── -->
-    <section id="screen-settings" class="screen" aria-label="Settings">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:var(--space-4)">
-        <button onclick="showScreen('home')"
-          style="background:var(--color-bg-tertiary);border:1px solid var(--color-border);
-                 border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer;
-                 display:flex;align-items:center;justify-content:center;color:var(--color-text-primary);
-                 flex-shrink:0">←</button>
-        <h2 style="font-size:var(--text-lg);font-weight:var(--weight-bold);margin:0">Settings</h2>
-      </div>
+<script>
+/* ═══════════════════════════════════════════════════════
+   PROPAGATION WATCH — Single-file app
+   All logic here, no ES modules, no import/export
+   ═══════════════════════════════════════════════════════ */
 
-      <!-- Data Sources — API test -->
-      <div class="card" style="margin-bottom:var(--space-4)">
-        <h3 style="font-size:var(--text-md);font-weight:var(--weight-bold);margin-bottom:var(--space-3)">
-          📡 Data Sources
-        </h3>
-        <div id="api-test-panel">
-          <div style="color:var(--color-text-muted);font-size:var(--text-sm)">
-            Tap "Test API" to check NOAA connectivity.
-          </div>
-        </div>
-      </div>
+// ── State ──
+const S = {
+  user: JSON.parse(localStorage.getItem('pw_user') || '{}'),
+  prop: JSON.parse(localStorage.getItem('pw_noaa') || '{"kp":null,"sfi":null,"gScale":0,"fetchedAt":null}'),
+  watches: JSON.parse(localStorage.getItem('pw_watches') || '[]'),
+};
 
-      <!-- Power & License -->
-      <div class="card" style="margin-bottom:var(--space-4)">
-        <h3 style="font-size:var(--text-md);font-weight:var(--weight-bold);margin-bottom:var(--space-3)">
-          ⚡ Power &amp; License
-        </h3>
-        <div class="field" style="margin-bottom:var(--space-4)">
-          <label class="field__label">License class</label>
-          <div style="display:flex;flex-direction:column;gap:var(--space-2)">
-            <button class="btn btn--secondary" id="lic-C" data-lic="C"
-                    onclick="window._pwSelectLicClass('C',this)"
-                    style="justify-content:space-between;min-height:44px;padding:0 var(--space-4);width:100%">
-              <span style="font-weight:var(--weight-bold)">Class C</span>
-              <span class="mono" style="font-size:var(--text-xs);color:var(--color-text-secondary)">max 25W · Novice / Belgian HAREC candidate</span>
-            </button>
-            <button class="btn btn--secondary" id="lic-B" data-lic="B"
-                    onclick="window._pwSelectLicClass('B',this)"
-                    style="justify-content:space-between;min-height:44px;padding:0 var(--space-4);width:100%">
-              <span style="font-weight:var(--weight-bold)">Class B</span>
-              <span class="mono" style="font-size:var(--text-xs);color:var(--color-text-secondary)">max 100W · Intermediate</span>
-            </button>
-            <button class="btn btn--primary" id="lic-A" data-lic="A"
-                    onclick="window._pwSelectLicClass('A',this)"
-                    style="justify-content:space-between;min-height:44px;padding:0 var(--space-4);width:100%">
-              <span style="font-weight:var(--weight-bold)">Class A</span>
-              <span class="mono" style="font-size:var(--text-xs)">max 1500W · HAREC full license</span>
-            </button>
-          </div>
-        </div>
-        <div class="field" style="margin-bottom:var(--space-4)">
-          <label class="field__label">
-            Transmit power:
-            <span id="pwr-display" class="mono">100W</span>
-            <span id="pwr-db" style="font-size:var(--text-xs);color:var(--color-text-muted)"> (reference 100W)</span>
-          </label>
-          <input type="range" id="pwr-slider" min="1" max="1500" step="1" value="100"
-                 oninput="window._pwUpdatePower(this.value)" style="width:100%"/>
-          <div style="display:flex;justify-content:space-between;
-                      font-size:10px;color:var(--color-text-muted);
-                      font-family:var(--font-mono);margin-top:var(--space-1)">
-            <span>1W</span><span id="pwr-min-qrp">QRP 5W</span>
-            <span id="pwr-mid">25W</span><span>100W</span>
-            <span id="pwr-max-label">25W</span>
-          </div>
-          <div class="field__hint" id="pwr-hint" style="margin-top:var(--space-2)"></div>
-        </div>
-        <div class="field">
-          <label style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">
-            <span class="field__label" style="margin-bottom:0">QRP mode (≤ 5W) — POTA/SOTA</span>
-            <label class="toggle">
-              <input type="checkbox" class="toggle__input" id="qrp-toggle"
-                     onchange="window._pwToggleQRP(this.checked)"/>
-              <span class="toggle__track"></span>
-            </label>
-          </label>
-        </div>
-      </div>
+// Defaults
+S.user.licenseClass = S.user.licenseClass || 'A';
+S.user.txPowerW     = S.user.txPowerW     || 100;
+S.user.qrpMode      = S.user.qrpMode      || false;
+S.user.theme        = S.user.theme        || 'dark';
+S.user.lang         = S.user.lang         || 'en';
+S.user.configured   = S.user.configured   || false;
+S.user.timezone     = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Brussels';
 
-      <!-- Location -->
-      <div class="card" style="margin-bottom:var(--space-4)">
-        <h3 style="font-size:var(--text-md);font-weight:var(--weight-bold);margin-bottom:var(--space-3)">
-          📍 Location
-        </h3>
-        <div class="field">
-          <label class="field__label">Grid square</label>
-          <input class="field__input" id="grid-input" placeholder="e.g. JO20ev"
-                 autocapitalize="characters"/>
-        </div>
-        <button class="btn btn--primary" style="margin-top:var(--space-3);width:100%"
-                onclick="window._pwSaveLocation()">Save location</button>
-      </div>
+// ── Save helpers ──
+function saveUser()    { try { localStorage.setItem('pw_user',    JSON.stringify(S.user));    } catch(e) {} }
+function saveWatches() { try { localStorage.setItem('pw_watches', JSON.stringify(S.watches)); } catch(e) {} }
+function saveNoaa()    { try { localStorage.setItem('pw_noaa',    JSON.stringify(S.prop));    } catch(e) {} }
 
-      <!-- Display -->
-      <div class="card">
-        <h3 style="font-size:var(--text-md);font-weight:var(--weight-bold);margin-bottom:var(--space-3)">
-          🎨 Display
-        </h3>
-        <div class="field" style="margin-bottom:var(--space-4)">
-          <label class="field__label">Language</label>
-          <select class="field__input" id="lang-select"
-                  onchange="window._pwChangeLang(this.value)">
-            <option value="en">English</option>
-            <option value="nl">Nederlands</option>
-          </select>
-        </div>
-        <div class="field">
-          <label style="display:flex;justify-content:space-between;align-items:center">
-            <span class="field__label" style="margin-bottom:0">Light theme</span>
-            <label class="toggle">
-              <input type="checkbox" class="toggle__input" id="theme-toggle"
-                     onchange="window._pwToggleTheme(this.checked)"/>
-              <span class="toggle__track"></span>
-            </label>
-          </label>
-        </div>
-      </div>
-    </section>
+// ── Toast ──
+function toast(msg, type) {
+  type = type || 'info';
+  const cls = {ok:'toast-ok',warn:'toast-warn',err:'toast-err',info:'toast-info'}[type] || 'toast-info';
+  const el = document.createElement('div');
+  el.className = 'toast ' + cls;
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
 
-    <!-- ── Storm screen ── -->
-    <section id="screen-storm" class="screen" aria-label="Stormshadow — Kp recovery">
-      <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-6)">
-        <button class="btn btn--icon" onclick="showScreen('home')" style="width:40px;height:40px;min-height:unset">←</button>
-        <span style="font-weight:var(--weight-bold);font-size:var(--text-md)">Stormshadow — Kp recovery</span>
-      </div>
-      <div id="storm-detail" style="font-size:var(--text-sm);color:var(--color-text-secondary)">No active storm.</div>
-    </section>
+// ── Navigation ──
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+  ['home','setup','settings'].forEach(t => {
+    const el = document.getElementById('tab-' + t);
+    if (el) el.classList.toggle('active', t === id || (id === 'detail' && t === 'home'));
+  });
+}
+function goHome()     { showScreen('home');     renderHome(); }
+function goSettings() { showScreen('settings'); syncSettingsUI(); }
+function goNewWatch() { showScreen('setup');    renderSetup(); }
 
-  </main>
+// ── NOAA ──
+async function fetchNoaa() {
+  const BASE = 'https://services.swpc.noaa.gov/json';
+  const TOUT = 10000;
+  let ok = false;
 
-  <!-- Toast container -->
-  <div id="toast-container" role="status" aria-live="polite" aria-atomic="false"></div>
+  function tFetch(url) {
+    return new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('Timeout')), TOUT);
+      fetch(url).then(r => { clearTimeout(t); res(r); }).catch(e => { clearTimeout(t); rej(e); });
+    });
+  }
 
-  <!-- SunCalc — local copy, no CDN -->
-  <script>
-    // Safe stubs — active immediately, overridden when ES modules load
-    function _showScreen(id) {
-      document.querySelectorAll('.screen').forEach(function(s){ s.classList.remove('active'); });
-      var el = document.getElementById('screen-' + id);
-      if (el) el.classList.add('active');
-      document.querySelectorAll('.nav-item').forEach(function(n){
-        n.classList.toggle('active', n.dataset.screen === id);
-      });
+  try {
+    const r = await tFetch(BASE + '/planetary_k_index_1m.json');
+    const d = await r.json();
+    for (let i = d.length-1; i >= 0; i--) {
+      const v = parseFloat(d[i].Kp || d[i].kp);
+      if (!isNaN(v)) { S.prop.kp = v; ok = true; break; }
     }
-    window.showScreen = _showScreen;
-    // All _pw* are no-ops until modules register real implementations
-    ['_pwInitNewWatch','_pwInitSettings','_pwEvaluate','_pwHandleAlarm',
-     '_pwHandleExport','_pwHandleDelete','_pwTestAPI','_pwSaveCfg',
-     '_pwSelectLicClass','_pwUpdatePower','_pwToggleQRP','_pwToggleTheme',
-     '_pwChangeLang','_pwSaveLocation','_pwFetchNOAA']
-    .forEach(function(k){ window[k] = function(){}; });
-    window.showToast = function(m,t){ console.log((t||'info')+': '+m); };
-  </script>
-  <script src="lib/suncalc.js"></script>
+  } catch(e) { console.warn('Kp fetch:', e.message); }
 
-  <!-- App entry point -->
-  <script type="module" src="js/app.js"></script>
-  <script>
-    // Catch module load errors and show them visibly
-    window.addEventListener('error', function(e) {
-      console.error('Global error:', e.message, e.filename, e.lineno);
-    });
-    window.addEventListener('unhandledrejection', function(e) {
-      console.error('Unhandled rejection:', e.reason);
-    });
-  </script>
+  try {
+    const r = await tFetch(BASE + '/solar-cycle/observed-solar-cycle-indices.json');
+    const d = await r.json();
+    for (let i = d.length-1; i >= 0; i--) {
+      const v = parseFloat(d[i].flux || d[i].sfi);
+      if (!isNaN(v) && v > 0) { S.prop.sfi = v; ok = true; break; }
+    }
+  } catch(e) { console.warn('SFI fetch:', e.message); }
 
+  try {
+    const r = await tFetch(BASE + '/noaa-scales.json');
+    const d = await r.json();
+    S.prop.gScale = parseInt(d?.G?.Scale || 0);
+  } catch(e) { console.warn('Scales fetch:', e.message); }
 
+  if (ok) {
+    S.prop.fetchedAt = new Date().toISOString();
+    saveNoaa();
+  }
+  updateStatusBar();
+  renderWatchList();
+  renderTimeline();
+  return ok;
+}
+
+async function doRefresh() { toast('Refreshing…','info'); await fetchNoaa(); }
+
+// ── Status bar ──
+function ageMin(iso) {
+  if (!iso) return 9999;
+  return Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+}
+function updateStatusBar() {
+  const kp  = S.prop.kp;
+  const sfi = S.prop.sfi;
+  const age = ageMin(S.prop.fetchedAt);
+  const kpEl = document.getElementById('sb-kp');
+  const sfiEl = document.getElementById('sb-sfi');
+  const gEl   = document.getElementById('sb-g');
+  const ageEl = document.getElementById('sb-age');
+  if (!kpEl) return;
+  kpEl.textContent = kp != null ? kp.toFixed(1) : '—';
+  kpEl.className = 'val ' + (!kp||kp<3?'kp-ok':kp<5?'kp-warn':'kp-bad');
+  sfiEl.textContent = sfi ?? '—';
+  gEl.textContent = 'G' + (S.prop.gScale || 0);
+  ageEl.textContent = age < 999 ? age + 'm ago' : 'no data';
+  ageEl.style.color = age > 120 ? 'var(--bad-tx)' : age > 30 ? 'var(--warn-tx)' : 'var(--tx3)';
+}
+
+// ── Propagation calculations ──
+const BAND_FREQ = {'160m':1.85,'80m':3.65,'40m':7.1,'30m':10.12,'20m':14.2,
+                   '17m':18.1,'15m':21.2,'12m':24.9,'10m':28.5,'6m':50.1};
+const KP_MAT = {
+  '160m':[1,.9,.75,.5,.25,.1,0,0,0,0],'80m':[1,.9,.8,.6,.35,.15,.05,0,0,0],
+  '40m':[1,.95,.85,.7,.5,.25,.1,.05,0,0],'30m':[1,.98,.9,.8,.6,.35,.15,.05,0,0],
+  '20m':[1,1,.95,.85,.65,.4,.2,.05,0,0],'17m':[1,1,.97,.88,.7,.45,.25,.1,.02,0],
+  '15m':[1,1,.98,.9,.75,.5,.3,.12,.03,0],'10m':[1,1,1,.95,.82,.6,.38,.18,.06,.01],
+  '6m':[1,1,1,.97,.88,.7,.5,.3,.12,.04]
+};
+const D_LAYER = {'160m':{max:.95,half:6},'80m':{max:.9,half:10},'40m':{max:.82,half:18},'30m':{max:.35,half:35}};
+const MODE_MARGIN = {FT8:20,FT4:18,JT65:22,CW:13,SSB:6,AM:4,MSK144:12};
+
+function sunElev(lat, lon, date) {
+  if (!window.SunCalc || lat==null || isNaN(lat)) return -90;
+  try {
+    const p = SunCalc.getPosition(date || new Date(), lat, lon);
+    const d = p.altitude * 180 / Math.PI;
+    return isNaN(d) ? -90 : d;
+  } catch(e) { return -90; }
+}
+
+function calcMUF(sfi, distKm) {
+  const foF2 = 2 + (sfi/150)*8;
+  return foF2 * (2.5 + Math.min(2.5, distKm/3000));
+}
+function dlayer(band, elev) {
+  if (elev <= 0) return 1;
+  const cfg = D_LAYER[band];
+  if (!cfg) return 1;
+  const t = elev/cfg.half;
+  return Math.max(0.03, 1 - cfg.max*(t*t)/(1+t*t));
+}
+function kpDeg(band, kp) {
+  const row = KP_MAT[band] || KP_MAT['20m'];
+  const lo = Math.min(9, Math.max(0, Math.floor(kp||0)));
+  const hi = Math.min(9, lo+1);
+  const fr = (kp||0) - Math.floor(kp||0);
+  return row[lo]*(1-fr) + row[hi]*fr;
+}
+function f2grad(txEl, rxEl, midEl, distKm, band) {
+  const F2B = ['20m','17m','15m','12m','10m','6m'];
+  if (!F2B.includes(band)) return 1;
+  const dw = Math.min(1, Math.max(0, (distKm-1500)/6000));
+  if (dw < .05) return 1;
+  const norm = e => Math.max(-1,Math.min(1,e/20));
+  const grad = Math.abs(norm(txEl)-norm(rxEl))/2;
+  const mid  = Math.max(0, norm(midEl||0));
+  const floor = .4 + .2*(1-dw);
+  return Math.max(floor, Math.min(1, floor + (1-floor)*grad - mid*mid*.2*dw));
+}
+function multiHop(band, distKm) {
+  const lim = {'160m':4000,'80m':6000};
+  const m = lim[band];
+  if (!m || distKm <= m) return 1;
+  return Math.max(.05, Math.exp(-.18*(distKm-m)/2000));
+}
+function pwrFactor(pw, mode) {
+  const db  = 10*Math.log10((pw||100)/100);
+  const mg  = MODE_MARGIN[mode] || 10;
+  return Math.max(.1, Math.min(1.2, 1+db/mg));
+}
+
+function calcRel(band, mode, distKm, txLat, txLon, rxLat, rxLon, pw, atDate) {
+  const at   = atDate || new Date();
+  const kp   = S.prop.kp  || 0;
+  const sfi  = S.prop.sfi || 70;
+  const freq = BAND_FREQ[band] || 14.2;
+  const muf  = calcMUF(sfi, distKm);
+  if (freq > muf*1.10) return {rel:0, base:0, muf};
+  if (freq > muf*0.95) return {rel:.15, base:.15, muf};
+
+  const txEl  = sunElev(txLat, txLon, at);
+  const rxEl  = sunElev(rxLat, rxLon, at);
+  const midEl = sunElev((txLat+rxLat)/2, (txLon+rxLon)/2, at);
+
+  let b = Math.max(.05, Math.min(1, sfi/150));
+  b *= kpDeg(band, kp);
+  b *= dlayer(band, txEl);
+  b *= dlayer(band, rxEl);
+  b *= multiHop(band, distKm);
+  b *= f2grad(txEl, rxEl, midEl, distKm, band);
+  b  = Math.max(0, Math.min(.99, b));
+
+  const pf  = pwrFactor(pw||100, mode);
+  const rel = Math.max(0, Math.min(.99, b*pf));
+  return {rel, base:b, muf, txEl, rxEl};
+}
+
+// ── Watch evaluation ──
+function evalWatch(w) {
+  const u = S.user;
+  if (!u.lat || !w.lat) { w.rel=0; w.status='WAITING'; w.nextWin=null; return; }
+  const r = calcRel(w.band, w.mode, w.dist, u.lat, u.lon, w.lat, w.lon, w.pw||u.txPowerW);
+  w.rel    = r.rel;
+  w.base   = r.base;
+  w.status = relToStatus(r.rel, (w.threshold||60)/100);
+  w.nextWin = findNext(w);
+}
+function relToStatus(r, thr) {
+  if (r >= thr)         return 'GOOD';
+  if (r >= thr * .75)   return 'SOON';
+  if (r >= .10)         return 'WAIT';
+  return 'POOR';
+}
+function findNext(w) {
+  const u   = S.user;
+  const thr = (w.threshold||60)/100;
+  const STEP = 15*60*1000;
+  let best = null;
+  let first = null;
+  for (let i=1; i<=96; i++) {
+    const t = new Date(Date.now() + i*STEP);
+    const r = calcRel(w.band, w.mode, w.dist, u.lat, u.lon, w.lat, w.lon, w.pw||u.txPowerW, t);
+    if (r.rel >= thr && !first) first = {time:t, rel:r.rel};
+    if (!best || r.rel > best.rel) best = {time:t, rel:r.rel};
+  }
+  return first || best;
+}
+function evalAll() { S.watches.forEach(evalWatch); renderWatchList(); renderTimeline(); }
+
+// ── Time formatting ──
+function fmtUTC(d) { return d.toUTCString().slice(17,22)+' UTC'; }
+function fmtLocal(d) {
+  try { return d.toLocaleTimeString('en-GB',{timeZone:S.user.timezone,hour:'2-digit',minute:'2-digit'}); }
+  catch(e){ return ''; }
+}
+function fmtBoth(d) {
+  const u = fmtUTC(d), l = fmtLocal(d);
+  return l && l !== u.slice(0,5) ? u + ' / ' + l + ' local' : u;
+}
+
+// ── Distance & bearing ──
+function haversine(la1,lo1,la2,lo2) {
+  const R=6371, d2r=Math.PI/180;
+  const dLa=(la2-la1)*d2r, dLo=(lo2-lo1)*d2r;
+  const a=Math.sin(dLa/2)**2+Math.cos(la1*d2r)*Math.cos(la2*d2r)*Math.sin(dLo/2)**2;
+  return Math.round(R*2*Math.asin(Math.sqrt(a)));
+}
+function bearing(la1,lo1,la2,lo2) {
+  const dLo=(lo2-lo1)*Math.PI/180;
+  const y=Math.sin(dLo)*Math.cos(la2*Math.PI/180);
+  const x=Math.cos(la1*Math.PI/180)*Math.sin(la2*Math.PI/180)-Math.sin(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.cos(dLo);
+  return Math.round(((Math.atan2(y,x)/Math.PI*180)+360)%360);
+}
+function gridToLL(g) {
+  g = g.toUpperCase();
+  let lo=(g.charCodeAt(0)-65)*20-180, la=(g.charCodeAt(1)-65)*10-90;
+  if(g.length>=4){lo+=parseInt(g[2])*2;la+=parseInt(g[3]);}
+  if(g.length>=6){lo+=(g.charCodeAt(4)-65)*(2/24);la+=(g.charCodeAt(5)-65)*(1/24);}
+  lo+=g.length>=6?1/24:g.length>=4?1:10;
+  la+=g.length>=6?.5/24:g.length>=4?.5:5;
+  return{lat:Math.round(la*1000)/1000, lon:Math.round(lo*1000)/1000};
+}
+
+// ── Render home ──
+function renderHome() {
+  updateStatusBar();
+  renderWatchList();
+  renderTimeline();
+  document.getElementById('tl-now').textContent = new Date().toUTCString().slice(17,22)+' UTC';
+}
+
+// ── Watch list ──
+const statusColor = {GOOD:'var(--good)',SOON:'var(--good)',WAIT:'var(--warn)',POOR:'var(--bad)',undefined:'var(--bdr)'};
+const statusLabel = {GOOD:'● GOOD WINDOW',SOON:'◑ OPENING SOON',WAIT:'○ WAITING',POOR:'✕ CLOSED'};
+
+function renderWatchList() {
+  const el = document.getElementById('watch-list');
+  if (!el) return;
+  if (!S.watches.length) {
+    el.innerHTML = '<div class="empty">No watches yet<br><br><button class="btn btn-pri" style="max-width:200px;margin:0 auto" onclick="goNewWatch()">+ Add watch</button></div>';
+    return;
+  }
+  const sorted = [...S.watches].sort((a,b) => {
+    const o={GOOD:0,SOON:1,WAIT:2,POOR:3};
+    return (o[a.status]||4)-(o[b.status]||4);
+  });
+  el.innerHTML = sorted.map(w => watchCard(w)).join('');
+}
+
+function watchCard(w) {
+  const col = statusColor[w.status] || 'var(--bdr)';
+  const pct = Math.round((w.rel||0)*100);
+  const pw  = w.pw || S.user.txPowerW || 100;
+  const lbl = statusLabel[w.status] || '— —';
+  let sub = '';
+  if (w.nextWin) {
+    const t = new Date(w.nextWin.time);
+    const r = Math.round(w.nextWin.rel*100);
+    const u = fmtUTC(t), l = fmtLocal(t);
+    const ts = l && l!==u.slice(0,5) ? u+' / '+l : u;
+    sub = w.status==='GOOD'
+      ? 'Until ~'+ts
+      : 'Next: <b>'+ts+'</b> · '+r+'%';
+  }
+  return `<div class="card wcard" style="border-left-color:${col}" onclick="openWatch('${w.id}')">
+    <div class="wcard-top">
+      <div>
+        <div class="wcard-name">${w.label}<span class="pwr-badge">${pw}W</span></div>
+        <div class="wcard-meta">${w.band} · ${w.mode} · ${(w.dist||0).toLocaleString()} km · ${w.az||0}°</div>
+      </div>
+      <div class="wcard-actions">
+        <button class="btn-ico" onclick="event.stopPropagation();alarmWatch('${w.id}')" title="Alarm">⏰</button>
+        <button class="btn-ico btn-del" onclick="event.stopPropagation();deleteWatch('${w.id}')" title="Delete">🗑</button>
+      </div>
+    </div>
+    <div class="wcard-bottom">
+      <div>
+        <div class="wcard-state" style="color:${col}">${lbl}</div>
+        <div class="wcard-sub">${sub}</div>
+      </div>
+      <div class="wcard-pct" style="color:${col}">${pct}%</div>
+    </div>
+  </div>`;
+}
+
+// ── Watch detail ──
+function openWatch(id) {
+  const w = S.watches.find(x => x.id===id);
+  if (!w) return;
+  document.getElementById('det-title').textContent = w.label+' — '+w.band+' '+w.mode;
+  const pct   = Math.round((w.rel||0)*100);
+  const bpct  = Math.round((w.base||0)*100);
+  const pw    = w.pw || S.user.txPowerW || 100;
+  const col   = statusColor[w.status] || 'var(--bdr)';
+  const diff  = bpct - pct;
+  const nw    = w.nextWin ? {time:new Date(w.nextWin.time), rel:w.nextWin.rel} : null;
+
+  let nwHtml = '';
+  if (nw) {
+    const nwPct = Math.round(nw.rel*100);
+    const nwCol = nwPct>=60?'var(--good)':nwPct>=30?'var(--warn)':'var(--bad)';
+    const nwBg  = nwPct>=60?'var(--good-bg)':nwPct>=30?'var(--warn-bg)':'var(--bad-bg)';
+    nwHtml = `<div style="background:${nwBg};border:1px solid ${nwCol};border-radius:8px;padding:14px;margin:12px 0">
+      <div style="font-size:11px;color:var(--tx2);margin-bottom:4px">${w.status==='GOOD'?'Window ends ~':'Best window'}</div>
+      <div style="font-size:26px;font-weight:700;font-family:var(--mono);color:${nwCol}">${fmtUTC(nw.time)}</div>
+      <div style="font-size:12px;font-family:var(--mono);color:var(--tx2);margin-top:2px">${fmtLocal(nw.time)} local · ${nwPct}% reliability</div>
+      <button class="btn btn-sec" style="margin-top:10px" onclick="exportICS('${id}')">📅 Export to calendar</button>
+    </div>`;
+  }
+
+  document.getElementById('det-body').innerHTML = `
+    <div style="font-size:52px;font-weight:700;font-family:var(--mono);color:${col}">${pct}%</div>
+    <div style="font-size:12px;color:var(--tx2);margin-top:4px">path reliability now · at ${pw}W · ${w.mode}</div>
+    ${pw<100&&diff>0?`<div style="font-size:12px;color:var(--tx2);background:var(--bg3);border-radius:6px;padding:8px 12px;margin-top:8px">At 100W: ${bpct}% — ${diff}pt difference</div>`:''}
+    ${nwHtml}
+    <div class="card" style="margin-top:0">
+      <div class="info-table">
+        <div class="info-row"><span class="info-key">SFI</span><span class="info-val">${S.prop.sfi??'—'}</span></div>
+        <div class="info-row"><span class="info-key">Kp</span><span class="info-val">${S.prop.kp!=null?S.prop.kp.toFixed(1):'—'}</span></div>
+        <div class="info-row"><span class="info-key">Power</span><span class="info-val">${pw}W</span></div>
+        <div class="info-row"><span class="info-key">Distance</span><span class="info-val">${(w.dist||0).toLocaleString()} km</span></div>
+        <div class="info-row"><span class="info-key">Bearing</span><span class="info-val">${w.az||0}° / ${w.azlp||0}° LP</span></div>
+        <div class="info-row"><span class="info-key">Grid</span><span class="info-val">${w.grid||'—'}</span></div>
+      </div>
+    </div>
+    <div class="det-btn-row">
+      <button class="btn btn-pri" onclick="alarmWatch('${id}')">⏰ Set alarm</button>
+      <button class="btn btn-sec" onclick="exportICS('${id}')">📅 Export .ics</button>
+    </div>`;
+  showScreen('detail');
+}
+
+// ── Delete watch ──
+function deleteWatch(id) {
+  S.watches = S.watches.filter(w => w.id !== id);
+  saveWatches();
+  renderWatchList();
+  toast('Watch deleted','info');
+}
+
+// ── Alarm ──
+function alarmWatch(id) {
+  const w = S.watches.find(x => x.id===id);
+  if (!w) return;
+  const t = w.nextWin ? fmtBoth(new Date(w.nextWin.time)) : 'when window opens';
+  toast('Alarm set — '+w.label+' — '+t,'ok');
+}
+
+// ── ICS export ──
+function exportICS(id) {
+  const w = S.watches.find(x => x.id===id);
+  if (!w || !w.nextWin) { toast('No upcoming window','warn'); return; }
+  const start = new Date(w.nextWin.time);
+  const end   = new Date(start.getTime()+60*60*1000);
+  const tz    = S.user.timezone || 'Europe/Brussels';
+  function fmtLocal2(d) {
+    const p = new Intl.DateTimeFormat('en',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).formatToParts(d);
+    const m={};p.forEach(x=>m[x.type]=x.value);
+    return `${m.year}${m.month}${m.day}T${m.hour}${m.minute}${m.second}`;
+  }
+  function fmtZ(d){return d.toISOString().replace(/[-:]/g,'').split('.')[0]+'Z';}
+  const ics=[
+    'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//PropagationWatch//ON3VZ//EN',
+    'CALSCALE:GREGORIAN','METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:${id}-${start.getTime()}@pw`,
+    `DTSTAMP:${fmtZ(new Date())}`,
+    `DTSTART;TZID=${tz}:${fmtLocal2(start)}`,
+    `DTEND;TZID=${tz}:${fmtLocal2(end)}`,
+    `SUMMARY:${w.label} — ${w.band} ${w.mode} — ${fmtUTC(start)} / ${fmtLocal(start)} local`,
+    `DESCRIPTION:Reliability: ${Math.round(w.nextWin.rel*100)}%\\nBearing: ${w.az}°\\nDistance: ${w.dist} km`,
+    'BEGIN:VALARM','TRIGGER:-PT15M','ACTION:DISPLAY',`DESCRIPTION:${w.label} in 15 min`,'END:VALARM',
+    'END:VEVENT','END:VCALENDAR'
+  ].join('\r\n');
+  const blob=new Blob([ics],{type:'text/calendar'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=w.label+'.ics';a.click();
+  toast('Calendar file downloaded','ok');
+}
+
+// ── Timeline ──
+function renderTimeline() {
+  const svg  = document.getElementById('timeline-svg');
+  const wrap = document.getElementById('timeline-scroll');
+  if (!svg) return;
+  const W    = Math.max(600, wrap.clientWidth || 600);
+  const watches = S.watches;
+  const rows = Math.max(1, watches.length);
+  const RH=18, GAP=3, LW=40, AH=14, H=rows*(RH+GAP)+AH+8;
+  svg.setAttribute('viewBox','0 0 '+W+' '+H);
+  svg.setAttribute('width', W);
+  svg.setAttribute('height',H);
+  const now   = new Date();
+  const start = new Date(now); start.setMinutes(0,0,0);
+  const STEP  = 15*60*1000, BLOCKS=96;
+  const xs    = (W-LW)/(BLOCKS*STEP);
+  const xnow  = LW+(now-start)*xs;
+  let html    = `<rect width="${W}" height="${H}" fill="var(--bg1)" rx="3"/>`;
+
+  // Greyline
+  if (S.user.lat) {
+    for (let i=0;i<BLOCKS;i++) {
+      const t=new Date(start.getTime()+i*STEP);
+      const e=sunElev(S.user.lat,S.user.lon,t);
+      if(e>=-6&&e<=6){const x=LW+i*STEP*xs;const bw=STEP*xs;
+        html+=`<rect x="${x}" y="0" width="${bw}" height="${H-AH}" fill="#BA7517" opacity=".12"/>`;}
+    }
+  }
+
+  // Hour marks
+  for(let h=0;h<=24;h+=3){
+    const x=LW+h*3600000*xs;
+    const utcH=(start.getUTCHours()+h)%24;
+    html+=`<line x1="${x}" y1="0" x2="${x}" y2="${H-AH}" stroke="var(--bdr2)" stroke-width=".5"/>`;
+    html+=`<text x="${x}" y="${H-1}" fill="var(--tx3)" font-size="9" font-family="monospace" text-anchor="middle">${String(utcH).padStart(2,'0')}h</text>`;
+  }
+
+  // Watch rows
+  watches.forEach((w,i)=>{
+    const y=i*(RH+GAP);
+    html+=`<text x="2" y="${y+RH-5}" fill="var(--tx3)" font-size="9" font-family="monospace">${w.band}</text>`;
+    for(let bi=0;bi<BLOCKS;bi++){
+      const t=new Date(start.getTime()+bi*STEP);
+      const r=calcRel(w.band,w.mode,w.dist,S.user.lat,S.user.lon,w.lat,w.lon,w.pw||S.user.txPowerW,t);
+      const pct=r.rel;
+      const c=pct>=.7?'#1D9E75':pct>=.4?'#EF9F27':pct>=.1?'#E24B4A':'#313754';
+      const bx=LW+bi*STEP*xs, bw=Math.max(1,STEP*xs-.5);
+      html+=`<rect x="${bx}" y="${y+1}" width="${bw}" height="${RH-2}" fill="${c}" opacity=".75" rx="1"/>`;
+    }
+    html+=`<text x="${LW+4}" y="${y+13}" fill="var(--tx1)" font-size="8" font-family="monospace" opacity=".6">${w.label}</text>`;
+  });
+
+  // Now line
+  html+=`<line x1="${xnow}" y1="0" x2="${xnow}" y2="${H-AH}" stroke="var(--tx1)" stroke-width="1.5" stroke-dasharray="3,3" opacity=".5"/>`;
+  html+=`<text x="${Math.min(xnow+3,W-24)}" y="10" fill="var(--tx3)" font-size="8" font-family="monospace">now</text>`;
+  svg.innerHTML=html;
+}
+
+// ── Setup wizard ──
+const SUGG=[
+  {entity:'W',   name:'North America',   grid:'FN41',lat:42.4,  lon:-71.1, dist:'5,890 km',az:'290°'},
+  {entity:'SM',  name:'Scandinavia',     grid:'JP90',lat:60.2,  lon:18.0,  dist:'1,540 km',az:'12°'},
+  {entity:'EA',  name:'South Europe',    grid:'IM99',lat:40.4,  lon:-3.7,  dist:'1,870 km',az:'208°'},
+  {entity:'JA',  name:'Japan',           grid:'PM96',lat:36.2,  lon:138.3, dist:'9,220 km',az:'47°'},
+  {entity:'VK',  name:'Australia',       grid:'QF22',lat:-33.9, lon:151.2, dist:'16,800 km',az:'110°'},
+  {entity:'ZL',  name:'New Zealand',     grid:'RF70',lat:-36.9, lon:174.8, dist:'18,900 km',az:'120°'},
+  {entity:'CU',  name:'Azores',          grid:'HM67',lat:37.7,  lon:-25.7, dist:'2,500 km',az:'252°'},
+  {entity:'PY',  name:'Brazil',          grid:'GG66',lat:-15.8, lon:-47.9, dist:'9,600 km',az:'236°'},
+  {entity:'VP8', name:'Falkland Islands',grid:'GD17',lat:-51.7, lon:-57.9, dist:'12,847 km',az:'222°'},
+  {entity:'ZS',  name:'South Africa',    grid:'KG33',lat:-25.8, lon:28.2,  dist:'9,100 km',az:'175°'},
+];
+let _selTarget = null, _setupStep = 1;
+
+function renderSetup() {
+  _setupStep = S.user.configured ? 2 : 1;
+  _selTarget = null;
+  renderSetupStep();
+}
+
+function renderSetupStep() {
+  const el = document.getElementById('setup-body');
+  if (!el) return;
+  if (_setupStep === 1) renderStep1(el);
+  else renderStep2(el);
+}
+
+function renderStep1(el) {
+  el.innerHTML = `
+    <div class="prog-bar"><div class="prog-dot active"></div><div class="prog-dot"></div><div class="prog-dot"></div></div>
+    <div class="setup-title">Your location</div>
+    <div class="setup-sub">Enter your callsign or grid square. Used for D-layer, greyline and path calculations.</div>
+    <div class="field">
+      <label>Callsign or grid square</label>
+      <input id="s-loc" placeholder="e.g. ON3VZ or JO20ev" autocapitalize="characters"
+             value="${S.user.callsign||S.user.grid||''}" oninput="hintLoc(this.value)"/>
+      <div class="field-hint" id="loc-hint">${S.user.grid?'Current: '+S.user.grid:''}</div>
+    </div>
+    <button class="btn btn-pri" onclick="saveLoc()">Continue →</button>
+    ${S.user.configured?'<button class="setup-skip" onclick="goHome()">Cancel</button>':''}`;
+}
+
+function hintLoc(v) {
+  const h = document.getElementById('loc-hint');
+  if (!v) { h.textContent=''; return; }
+  if (/^[A-Ra-r]{2}\d{2}([a-xA-X]{2})?$/.test(v)) {
+    try { const ll=gridToLL(v); h.textContent='Grid '+v.toUpperCase()+' → '+ll.lat.toFixed(2)+'°N '+ll.lon.toFixed(2)+'°E'; }
+    catch(e){ h.textContent=''; }
+  } else { h.textContent = v.length>1 ? 'Callsign recognised — grid will be estimated from prefix' : ''; }
+}
+
+function saveLoc() {
+  const val = (document.getElementById('s-loc')?.value||'').trim().toUpperCase();
+  if (!val) { toast('Enter a callsign or grid square','warn'); return; }
+  if (/^[A-Ra-r]{2}\d{2}([a-xA-X]{2})?$/.test(val)) {
+    try {
+      const ll = gridToLL(val);
+      S.user.grid = val; S.user.lat = ll.lat; S.user.lon = ll.lon;
+    } catch(e) { toast('Invalid grid square','err'); return; }
+  } else {
+    // Prefix lookup - use centroid estimates
+    const prefixMap = {
+      'ON':{lat:50.5,lon:4.5,grid:'JO20'},'PA':{lat:52.1,lon:5.3,grid:'JO22'},
+      'DL':{lat:51.2,lon:10.5,grid:'JO51'},'F':{lat:46.0,lon:2.4,grid:'JN03'},
+      'G':{lat:51.5,lon:-.1,grid:'IO91'},'EA':{lat:40.4,lon:-3.7,grid:'IM99'},
+    };
+    const pfx = Object.keys(prefixMap).sort((a,b)=>b.length-a.length)
+                      .find(p=>val.startsWith(p));
+    if (pfx) {
+      const d=prefixMap[pfx];
+      S.user.callsign=val; S.user.lat=d.lat; S.user.lon=d.lon; S.user.grid=d.grid;
+    } else {
+      S.user.callsign=val;
+      if (!S.user.lat) { toast('Prefix not recognised — please enter a grid square','warn'); return; }
+    }
+  }
+  saveUser();
+  _setupStep=2; renderSetupStep();
+}
+
+function renderStep2(el) {
+  el.innerHTML = `
+    <div class="prog-bar"><div class="prog-dot done"></div><div class="prog-dot active"></div><div class="prog-dot"></div></div>
+    <div class="setup-title">Target station</div>
+    <div class="setup-sub">Choose a region or enter a callsign prefix.</div>
+    <div class="sugg-grid" id="sugg-grid"></div>
+    <div class="field">
+      <label>Or enter manually</label>
+      <input id="s-dx" placeholder="e.g. VP8, JA1ZZZ" autocapitalize="characters" oninput="hintDX(this.value)"/>
+      <div class="field-hint" id="dx-hint"></div>
+    </div>
+    <div class="field-grid">
+      <div class="field"><label>Band</label>
+        <select id="s-band">${['40m','20m','17m','15m','10m','80m','30m','6m'].map(b=>`<option>${b}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>Mode</label>
+        <select id="s-mode">${['FT8','CW','SSB','FT4','MSK144'].map(m=>`<option>${m}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="field">
+      <label>Alert at reliability ≥ <span id="thr-lbl">60%</span></label>
+      <input type="range" min="10" max="90" step="5" value="60" style="width:100%"
+             oninput="document.getElementById('thr-lbl').textContent=this.value+'%'"/>
+    </div>
+    <button class="btn btn-pri" onclick="createWatch2()">Create watch →</button>
+    <button class="setup-skip" onclick="goHome()">Cancel</button>`;
+
+  // Suggestion buttons
+  const grid = document.getElementById('sugg-grid');
+  SUGG.forEach(s => {
+    const btn = document.createElement('button');
+    btn.className='sugg-btn';
+    btn.innerHTML=`<div class="sugg-pre">${s.entity}</div><div class="sugg-name">${s.name}</div><div class="sugg-dist">${s.dist} · ${s.az}</div>`;
+    btn.onclick=()=>{
+      _selTarget=s;
+      document.getElementById('s-dx').value=s.entity;
+      document.getElementById('dx-hint').textContent=s.name+' · '+s.grid+' · '+s.dist+' · '+s.az;
+      grid.querySelectorAll('.sugg-btn').forEach(b=>b.classList.remove('sel'));
+      btn.classList.add('sel');
+    };
+    grid.appendChild(btn);
+  });
+}
+
+const DXCC_SIMPLE = {
+  'W':{name:'USA',lat:42.4,lon:-71.1,grid:'FN41'},'K':{name:'USA',lat:42.4,lon:-71.1,grid:'FN41'},
+  'VE':{name:'Canada',lat:45.5,lon:-73.6,grid:'FN25'},'JA':{name:'Japan',lat:36.2,lon:138.3,grid:'PM96'},
+  'VK':{name:'Australia',lat:-33.9,lon:151.2,grid:'QF22'},'ZL':{name:'New Zealand',lat:-36.9,lon:174.8,grid:'RF70'},
+  'SM':{name:'Sweden',lat:59.3,lon:18.1,grid:'JP90'},'LA':{name:'Norway',lat:59.9,lon:10.7,grid:'JP53'},
+  'OH':{name:'Finland',lat:60.2,lon:24.9,grid:'KP20'},'OZ':{name:'Denmark',lat:55.7,lon:12.6,grid:'JO65'},
+  'EA':{name:'Spain',lat:40.4,lon:-3.7,grid:'IM99'},'I':{name:'Italy',lat:41.9,lon:12.5,grid:'JN61'},
+  'SV':{name:'Greece',lat:38.0,lon:23.7,grid:'KM17'},'VP8':{name:'Falkland Islands',lat:-51.7,lon:-57.9,grid:'GD17'},
+  'PY':{name:'Brazil',lat:-15.8,lon:-47.9,grid:'GG66'},'ZS':{name:'South Africa',lat:-25.8,lon:28.2,grid:'KG33'},
+  'CU':{name:'Azores',lat:37.7,lon:-25.7,grid:'HM67'},'UA':{name:'Russia',lat:55.8,lon:37.6,grid:'KO85'},
+  'BY':{name:'China',lat:39.9,lon:116.4,grid:'PL03'},'VK9':{name:'Christmas Island',lat:-10.5,lon:105.7,grid:'OI99'},
+};
+function lookupDX(val) {
+  const v = val.toUpperCase();
+  for (const len of [3,2,1]) {
+    const pfx = v.slice(0,len);
+    if (DXCC_SIMPLE[pfx]) return {...DXCC_SIMPLE[pfx], entity:pfx};
+  }
+  return null;
+}
+
+function hintDX(v) {
+  const h = document.getElementById('dx-hint');
+  _selTarget = null;
+  if (!v) { h.textContent=''; return; }
+  const e = lookupDX(v);
+  if (e) {
+    _selTarget = {...e, entity:v.toUpperCase()};
+    const ll = S.user;
+    if (ll.lat) {
+      _selTarget.dist = haversine(ll.lat,ll.lon,e.lat,e.lon);
+      _selTarget.az   = bearing(ll.lat,ll.lon,e.lat,e.lon);
+      _selTarget.azlp = Math.round((_selTarget.az+180)%360);
+    }
+    h.textContent = e.name+' · '+e.grid+(ll.lat?' · '+_selTarget.dist+' km':'');
+  } else {
+    h.textContent = v.length>1 ? 'Prefix not recognised' : '';
+  }
+}
+
+function createWatch2() {
+  const target = _selTarget;
+  if (!target?.lat) { toast('Please select a target station first','warn'); return; }
+  const band = document.getElementById('s-band')?.value||'20m';
+  const mode = document.getElementById('s-mode')?.value||'FT8';
+  const thr  = parseInt(document.querySelector('#setup-body input[type=range]')?.value||60);
+  const u    = S.user;
+
+  if (!u.lat) { toast('Please set your location first','err'); _setupStep=1; renderSetupStep(); return; }
+
+  const dist  = target.dist || haversine(u.lat,u.lon,target.lat,target.lon);
+  const az    = target.az   || bearing(u.lat,u.lon,target.lat,target.lon);
+  const azlp  = target.azlp || Math.round((az+180)%360);
+
+  const w = {
+    id:        crypto.randomUUID(),
+    label:     target.entity,
+    entity:    target.entity,
+    name:      target.name||target.entity,
+    lat:       target.lat,
+    lon:       target.lon,
+    grid:      target.grid||'',
+    dist, az, azlp,
+    band, mode,
+    threshold: thr,
+    pw:        null, // use global setting
+    rel:0, base:0, status:'WAIT', nextWin:null,
+  };
+  evalWatch(w);
+  S.watches.push(w);
+  saveWatches();
+  S.user.configured = true;
+  saveUser();
+  toast('Watch added: '+w.label+' '+band+' '+mode,'ok');
+  goHome();
+}
+
+// ── Settings UI ──
+function syncSettingsUI() {
+  const lc = S.user.licenseClass||'A';
+  const pw = S.user.txPowerW||100;
+  ['A','B','C'].forEach(c=>{
+    const b=document.getElementById('lic-'+c);
+    if(b) b.classList.toggle('active',c===lc);
+  });
+  const maxMap={C:25,B:100,A:1500};
+  const max=maxMap[lc]||1500;
+  const sl=document.getElementById('pwr-slider');
+  if(sl){sl.max=max;sl.value=Math.min(pw,max);}
+  updatePwrDisplay(Math.min(pw,max),lc);
+  const q=document.getElementById('qrp-tog');
+  const th=document.getElementById('theme-tog');
+  const lg=document.getElementById('lang-sel');
+  const gi=document.getElementById('grid-inp');
+  if(q)  q.checked  = !!S.user.qrpMode;
+  if(th) th.checked = S.user.theme==='light';
+  if(lg) lg.value   = S.user.lang||'en';
+  if(gi) gi.value   = S.user.grid||'';
+}
+
+function updatePwrDisplay(v,lc) {
+  v=parseInt(v)||100;
+  lc=lc||S.user.licenseClass||'A';
+  const maxMap={C:25,B:100,A:1500};
+  const vEl=document.getElementById('pwr-val');
+  const dbEl=document.getElementById('pwr-db');
+  const hEl=document.getElementById('pwr-hint');
+  const midEl=document.getElementById('pwr-mid');
+  const maxEl=document.getElementById('pwr-max');
+  if(vEl) vEl.textContent=v+'W';
+  if(dbEl){const db=v===100?0:10*Math.log10(v/100);dbEl.textContent=v===100?'(ref 100W)':`(${db>0?'+':''}${db.toFixed(1)} dB vs 100W)`;}
+  if(hEl){
+    if(v<=5) hEl.textContent='QRP ≤5W — only strong paths viable.';
+    else if(v<=25) hEl.textContent='Class C — significant penalty on marginal paths.';
+    else if(v<100) hEl.textContent=v+'W — slight reduction vs 100W.';
+    else if(v===100) hEl.textContent='Reference — no correction applied.';
+    else hEl.textContent=v+'W — reliability slightly boosted.';
+  }
+  if(midEl) midEl.textContent=lc==='C'?'15W':lc==='B'?'50W':'400W';
+  if(maxEl) maxEl.textContent=(maxMap[lc]||1500)+'W';
+}
+
+function setLicClass(cls) {
+  const maxMap={C:25,B:100,A:1500};
+  const max=maxMap[cls]||1500;
+  S.user.licenseClass=cls;
+  S.user.txPowerW=max;
+  S.user.qrpMode=false;
+  ['A','B','C'].forEach(c=>{
+    const b=document.getElementById('lic-'+c);
+    if(b) b.classList.toggle('active',c===cls);
+  });
+  const sl=document.getElementById('pwr-slider');
+  const q=document.getElementById('qrp-tog');
+  if(sl){sl.max=max;sl.value=max;}
+  if(q) q.checked=false;
+  updatePwrDisplay(max,cls);
+  saveUser();
+  evalAll();
+  toast('Class '+cls+' — '+max+'W','ok');
+}
+
+function setPower(v) {
+  v=parseInt(v)||100;
+  S.user.txPowerW=v;
+  if(v>5&&S.user.qrpMode){S.user.qrpMode=false;const q=document.getElementById('qrp-tog');if(q)q.checked=false;}
+  updatePwrDisplay(v);
+  saveUser();
+  evalAll();
+}
+
+function setQRP(on) {
+  const defMap={C:25,B:100,A:100};
+  S.user.qrpMode=on;
+  S.user.txPowerW=on?5:(defMap[S.user.licenseClass||'A']);
+  const sl=document.getElementById('pwr-slider');
+  if(sl){sl.value=S.user.txPowerW;}
+  updatePwrDisplay(S.user.txPowerW);
+  saveUser();
+  evalAll();
+}
+
+function setTheme(light) {
+  S.user.theme=light?'light':'dark';
+  document.documentElement.setAttribute('data-theme',S.user.theme);
+  saveUser();
+}
+
+function saveLang(lang) {
+  S.user.lang=lang;
+  saveUser();
+  toast(lang==='nl'?'Taal: Nederlands':'Language: English','info');
+}
+
+function saveLocation() {
+  const val=(document.getElementById('grid-inp')?.value||'').trim().toUpperCase();
+  if(!val){toast('Enter a grid square (e.g. JO20ev)','warn');return;}
+  try{
+    const ll=gridToLL(val);
+    S.user.grid=val;S.user.lat=ll.lat;S.user.lon=ll.lon;
+    saveUser();
+    toast('Location saved — '+val,'ok');
+    evalAll();
+  }catch(e){toast('Invalid grid square','err');}
+}
+
+// ── API test ──
+const apiSt={kp:{ok:null,val:null,err:null,ms:null},sfi:{ok:null,val:null,err:null,ms:null},scales:{ok:null,val:null,err:null,ms:null}};
+const apiURLs={
+  kp:'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json',
+  sfi:'https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json',
+  scales:'https://services.swpc.noaa.gov/json/noaa-scales.json',
+};
+async function doTestAPI() {
+  const btn=document.getElementById('api-test-btn');
+  const box=document.getElementById('api-status-box');
+  if(btn) btn.textContent='⏳ Testing…';
+  box.textContent='Testing endpoints…';
+
+  async function testOne(key,url,parse) {
+    const t0=Date.now();
+    try {
+      const r=await fetch(url);
+      const d=await r.json();
+      const v=parse(d);
+      apiSt[key]={ok:true,val:v,err:null,ms:Date.now()-t0};
+    } catch(e) {
+      apiSt[key]={ok:false,val:null,err:e.message,ms:Date.now()-t0};
+    }
+    renderAPIEndpoints();
+  }
+
+  await testOne('kp',apiURLs.kp,d=>{
+    for(let i=d.length-1;i>=0;i--){const v=parseFloat(d[i].Kp||d[i].kp);if(!isNaN(v))return v;}
+    throw new Error('No Kp found');
+  });
+  await testOne('sfi',apiURLs.sfi,d=>{
+    for(let i=d.length-1;i>=0;i--){const v=parseFloat(d[i].flux);if(!isNaN(v)&&v>0)return v;}
+    throw new Error('No SFI found');
+  });
+  await testOne('scales',apiURLs.scales,d=>parseInt(d?.G?.Scale||0));
+
+  const anyOk = apiSt.kp.ok||apiSt.sfi.ok;
+  if(anyOk) {
+    if(apiSt.kp.ok)  S.prop.kp=apiSt.kp.val;
+    if(apiSt.sfi.ok) S.prop.sfi=apiSt.sfi.val;
+    if(apiSt.scales.ok) S.prop.gScale=apiSt.scales.val;
+    S.prop.fetchedAt=new Date().toISOString();
+    saveNoaa();
+    updateStatusBar();
+    evalAll();
+    box.innerHTML=`<span style="color:var(--good-tx)">✅ NOAA connected — Kp ${apiSt.kp.val?.toFixed(2)||'—'} · SFI ${apiSt.sfi.val||'—'}</span>`;
+    toast('✅ NOAA OK — Kp '+(apiSt.kp.val?.toFixed(2)||'—')+' · SFI '+(apiSt.sfi.val||'—'),'ok');
+  } else {
+    box.innerHTML='<span style="color:var(--bad-tx)">❌ All NOAA endpoints failed</span>';
+    toast('❌ NOAA failed','err');
+  }
+  if(btn) btn.textContent='🔌 Test API';
+}
+
+function renderAPIEndpoints() {
+  const el=document.getElementById('api-endpoints');
+  if(!el) return;
+  const labels={kp:'Kp index',sfi:'Solar Flux Index',scales:'Storm scales'};
+  el.innerHTML=Object.entries(apiSt).map(([k,st])=>{
+    const icon=st.ok===true?'✅':st.ok===false?'❌':'○';
+    const col=st.ok===true?'var(--good-tx)':st.ok===false?'var(--bad-tx)':'var(--tx2)';
+    const val=st.val!=null?` <b>${typeof st.val==='number'?st.val.toFixed(k==='kp'?2:0):st.val}</b>`:'';
+    const lat=st.ms!=null?` · ${st.ms}ms`:'';
+    const err=st.err?`<div class="api-err">${st.err}</div>`:'';
+    return `<div class="api-row">
+      <div class="api-row-top">
+        <span style="color:${col}">${icon} ${labels[k]||k}${val}${lat}</span>
+      </div>
+      ${err}
+      <div class="api-url">${apiURLs[k].replace('https://services.swpc.noaa.gov','')}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Boot ──
+document.addEventListener('DOMContentLoaded', function() {
+  // Apply saved theme
+  document.documentElement.setAttribute('data-theme', S.user.theme||'dark');
+
+  // Route
+  if (!S.user.configured) {
+    showScreen('setup'); renderSetup();
+  } else {
+    showScreen('home'); renderHome(); evalAll();
+  }
+
+  // Fetch live data
+  fetchNoaa();
+
+  // Auto-refresh every 5 min
+  setInterval(fetchNoaa, 5*60*1000);
+  setInterval(()=>{
+    const e=document.getElementById('tl-now');
+    if(e) e.textContent=new Date().toUTCString().slice(17,22)+' UTC';
+  }, 60000);
+
+  // Register SW
+  if('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(function(e){ console.warn('SW:',e); });
+  }
+});
+</script>
 </body>
 </html>
