@@ -42,6 +42,8 @@ export function syncSettingsUI() {
     btn.style.justifyContent = 'space-between';
     btn.style.minHeight      = '44px';
     btn.style.padding        = '0 var(--space-4)';
+    btn.style.width          = '100%';
+    btn.style.display        = 'flex';
   });
 
   /* Power slider */

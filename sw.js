@@ -2,7 +2,7 @@
  * NOAA requests bypass SW completely — no caching interference.
  * Static assets: Cache First. Everything else: Network First. */
 
-const CACHE_NAME   = 'pw-cache-v2';
+const CACHE_NAME   = 'pw-cache-v3';
 const NOAA_ORIGINS = ['services.swpc.noaa.gov'];
 
 const STATIC_ASSETS = [
