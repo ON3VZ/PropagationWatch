@@ -266,3 +266,32 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   font-weight: 600;
   margin-left: 8px;
 }
+
+/* ── DX Spot list ── */
+.dx-spot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dx-spot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--bg3);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: var(--mono);
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.dx-spot-match {
+  border: 1px solid var(--good);
+  background: var(--good-bg);
+}
+.dx-spot-call { font-weight: 700; color: var(--tx1); min-width: 70px; }
+.dx-spot-freq { color: var(--warn-tx); min-width: 60px; }
+.dx-spot-band { min-width: 32px; font-weight: 600; }
+.dx-spot-mode { color: var(--tx2); min-width: 35px; }
+.dx-spot-de   { color: var(--tx3); flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.dx-spot-age  { color: var(--tx3); font-size: 10px; flex-shrink: 0; }

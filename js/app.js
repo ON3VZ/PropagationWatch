@@ -287,7 +287,7 @@ function findNext(w) {
   if (first) return {...first, isWindow:true};
   return best ? {...best, isWindow:false} : null;
 }
-function evalAll() { S.watches.forEach(evalWatch); renderWatchList(); renderTimeline(); }
+function evalAll() { S.watches.forEach(evalWatch); matchSpotsToWatches(); renderWatchList(); renderTimeline(); }
 
 // ── Time formatting ──
 function fmtUTC(d) { return d.toUTCString().slice(17,22)+' UTC'; }
@@ -334,6 +334,7 @@ function renderHome() {
   if (esWrap) esWrap.innerHTML = renderEsCard();
   renderWatchList();
   renderTimeline();
+  renderDXPanel();
   document.getElementById('tl-now').textContent = new Date().toUTCString().slice(17,22)+' UTC';
 }
 
@@ -436,6 +437,7 @@ function openWatch(id) {
         <div class="info-row"><span class="info-key">Grid</span><span class="info-val">${w.grid||'—'}</span></div>
       </div>
     </div>
+    ${renderWatchSpots(w)}
     <div class="det-btn-row">
       <button class="btn btn-pri" onclick="alarmWatch('${id}')">⏰ Set alarm</button>
       <button class="btn btn-sec" onclick="exportICS('${id}')">📅 Export .ics</button>
@@ -1551,3 +1553,212 @@ function drawTerminator(map) {
 }
 
 function closeMap() { showScreen('home'); renderHome(); }
+
+
+/* ════════════════════════════════════════════════════════════════
+   FEATURE 5: DX Cluster Integration
+   
+   Sources (tried in order):
+   1. dxwatch.com — REST JSON, all modes, CORS OK
+   2. PSK Reporter — JSONP, digital modes, CORS OK
+   
+   Spots are matched against active watches:
+   - Same band (within ±10 kHz tolerance)
+   - DX entity matches watch entity (prefix lookup)
+   
+   Shows: live spot list per watch + global recent DX
+   Updates every 5 minutes (aligned with NOAA poll)
+   ════════════════════════════════════════════════════════════════ */
+
+// Store last fetched spots
+let _dxSpots = [];
+let _dxFetchedAt = null;
+
+// Band frequency ranges for spot matching
+const BAND_RANGES = {
+  '160m': [1800, 2000],   '80m':  [3500, 4000],
+  '40m':  [7000, 7300],   '30m':  [10100, 10150],
+  '20m':  [14000, 14350], '17m':  [18068, 18168],
+  '15m':  [21000, 21450], '12m':  [24890, 24990],
+  '10m':  [28000, 29700], '6m':   [50000, 54000],
+};
+
+function freqToBand(freqKhz) {
+  for (const [band, [lo, hi]] of Object.entries(BAND_RANGES)) {
+    if (freqKhz >= lo && freqKhz <= hi) return band;
+  }
+  return null;
+}
+
+// Extract DXCC prefix from callsign (simplified)
+function callToPrefix(call) {
+  if (!call) return '';
+  const c = call.toUpperCase();
+  // Remove portable suffixes (/P /M /QRP etc)
+  const base = c.split('/')[0];
+  // Try known prefixes from DXCC_SIMPLE
+  const keys = Object.keys(DXCC_SIMPLE).sort((a,b) => b.length - a.length);
+  for (const pfx of keys) {
+    if (base.startsWith(pfx)) return pfx;
+  }
+  // Generic: first 2-3 chars
+  return base.slice(0, base.match(/\d/) ? base.search(/\d/) + 1 : 3);
+}
+
+async function fetchDXSpots() {
+  // Try dxwatch.com first
+  const spots = await fetchDXWatch() || await fetchPSKReporter();
+  if (spots && spots.length) {
+    _dxSpots     = spots;
+    _dxFetchedAt = new Date();
+    matchSpotsToWatches();
+    renderDXPanel();
+  }
+}
+
+async function fetchDXWatch() {
+  const url = 'https://dxwatch.com/dxsd1/s.php?s=0&r=50';
+  try {
+    const r = await Promise.race([
+      fetch(url),
+      new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+    ]);
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!Array.isArray(d)) return null;
+    return d.map(s => ({
+      dx:      (s.dx  || s.DX  || '').toUpperCase(),
+      de:      (s.de  || s.DE  || '').toUpperCase(),
+      freq:    parseFloat(s.freq || s.Freq || 0),
+      band:    freqToBand(parseFloat(s.freq || 0)),
+      mode:    (s.mode || s.Mode || '').toUpperCase() || guessModeFromFreq(parseFloat(s.freq||0)),
+      comment: s.comment || s.Comment || '',
+      time:    s.time ? new Date(s.time) : new Date(),
+      source:  'DXWatch',
+    })).filter(s => s.dx && s.freq > 0 && s.band);
+  } catch { return null; }
+}
+
+async function fetchPSKReporter() {
+  // PSK Reporter: spots heard by stations near the user
+  const grid = (S.user.grid || 'JO20').slice(0,4);
+  const url  = `https://pskreporter.info/cgi-bin/pskquery5.pl?encap=0&callback=x`
+             + `&statistics=0&noactive=1&rronly=1&flowStartSeconds=-3600`
+             + `&receiverCallsign=&fDXgrid=${grid}`;
+  try {
+    const r = await Promise.race([
+      fetch(url),
+      new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+    ]);
+    if (!r.ok) return null;
+    let txt = await r.text();
+    txt = txt.replace(/^x\(|\)$/g, '');
+    const d = JSON.parse(txt);
+    const reps = d?.receptionReports ?? [];
+    return reps.map(s => ({
+      dx:      (s.senderCallsign || '').toUpperCase(),
+      de:      (s.receiverCallsign || '').toUpperCase(),
+      freq:    parseFloat(s.frequency || 0) / 1000,  // Hz → kHz
+      band:    freqToBand(parseFloat(s.frequency || 0) / 1000),
+      mode:    (s.mode || '').toUpperCase(),
+      comment: `SNR ${s.sNR ?? '?'} dB`,
+      time:    s.flowStartSeconds ? new Date(s.flowStartSeconds*1000) : new Date(),
+      source:  'PSK Reporter',
+    })).filter(s => s.dx && s.freq > 0 && s.band);
+  } catch { return null; }
+}
+
+function guessModeFromFreq(freqKhz) {
+  // Common FT8 frequencies
+  const FT8 = [1840,3573,7074,10136,14074,18100,21074,24915,28074,50313];
+  if (FT8.some(f => Math.abs(freqKhz - f) < 5)) return 'FT8';
+  const CW  = [1825,3510,7010,14010,21010,28010];
+  if (CW.some(f => Math.abs(freqKhz - f) < 20)) return 'CW';
+  return 'SSB';
+}
+
+// Match spots to watches — annotate each watch with matching spots
+function matchSpotsToWatches() {
+  const now = Date.now();
+  // Only use spots from last 30 min
+  const recent = _dxSpots.filter(s => (now - s.time.getTime()) < 30*60*1000);
+
+  S.watches.forEach(w => {
+    w.matchedSpots = recent.filter(s => {
+      // Band match
+      if (s.band !== w.band) return false;
+      // Entity match: DX callsign prefix matches watch entity
+      const pfx = callToPrefix(s.dx);
+      return pfx === w.entity
+          || s.dx.startsWith(w.entity)
+          || w.entity.startsWith(pfx);
+    }).slice(0, 5); // max 5 spots per watch
+  });
+}
+
+// Render DX panel on home screen
+function renderDXPanel() {
+  const el = document.getElementById('dx-panel');
+  if (!el) return;
+
+  // Global: last 10 spots across all watched bands
+  const watchedBands = [...new Set(S.watches.map(w => w.band))];
+  const relevant = _dxSpots
+    .filter(s => watchedBands.includes(s.band))
+    .slice(0, 10);
+
+  if (!relevant.length) {
+    el.innerHTML = '';
+    return;
+  }
+
+  const ageMin = _dxFetchedAt ? Math.round((Date.now()-_dxFetchedAt)/60000) : '?';
+
+  el.innerHTML = `
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px;
+                display:flex;justify-content:space-between;align-items:center">
+      <span>📻 Live DX spots</span>
+      <span style="font-family:var(--mono);font-size:10px;color:var(--tx3)">${ageMin}m ago</span>
+    </div>
+    <div class="dx-spot-list">
+      ${relevant.map(s => {
+        const band = s.band || '?';
+        const age  = Math.round((Date.now()-s.time.getTime())/60000);
+        const matched = S.watches.some(w => w.matchedSpots?.includes(s));
+        return `<div class="dx-spot${matched?' dx-spot-match':''}">
+          <span class="dx-spot-call">${s.dx}</span>
+          <span class="dx-spot-freq">${s.freq.toFixed(1)}</span>
+          <span class="dx-spot-band" style="color:${matched?'var(--good)':'var(--tx3)'}">${band}</span>
+          <span class="dx-spot-mode">${s.mode||'?'}</span>
+          <span class="dx-spot-de">de ${s.de}</span>
+          <span class="dx-spot-age">${age}m</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+// Show spots matching a specific watch in detail view
+function renderWatchSpots(w) {
+  if (!w.matchedSpots?.length) return '';
+  return `
+    <div class="card" style="margin-top:0">
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px">
+        📻 Live spots for ${w.entity} ${w.band}
+      </div>
+      ${w.matchedSpots.map(s => {
+        const age = Math.round((Date.now()-s.time.getTime())/60000);
+        return `<div class="dx-spot" style="padding:4px 0;border-bottom:1px solid var(--bdr2)">
+          <span class="dx-spot-call">${s.dx}</span>
+          <span class="dx-spot-freq">${s.freq.toFixed(1)} kHz</span>
+          <span class="dx-spot-mode">${s.mode||'?'}</span>
+          <span class="dx-spot-de" style="flex:1">de ${s.de}</span>
+          <span class="dx-spot-age">${age}m ago</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+// Poll every 5 minutes
+setInterval(fetchDXSpots, 5 * 60 * 1000);
+// Initial fetch
+setTimeout(fetchDXSpots, 3000); // slight delay after page load
