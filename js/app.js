@@ -215,8 +215,8 @@ function f2grad(txEl, rxEl, midEl, distKm, band) {
   const norm = e => Math.max(-1,Math.min(1,e/20));
   const grad = Math.abs(norm(txEl)-norm(rxEl))/2;
   const mid  = Math.max(0, norm(midEl||0));
-  const floor = .4 + .2*(1-dw);
-  return Math.max(floor, Math.min(1, floor + (1-floor)*grad - mid*mid*.2*dw));
+  const floor = .5 + .2*(1-dw);
+  return Math.max(floor, Math.min(1, floor + (1-floor)*grad - mid*mid*.15*dw));
 }
 function multiHop(band, distKm) {
   const lim = {'160m':4000,'80m':6000};
@@ -276,15 +276,15 @@ function findNext(w) {
   const u   = S.user;
   const thr = (w.threshold||60)/100;
   const STEP = 15*60*1000;
-  let best = null;
-  let first = null;
+  let best = null, first = null;
   for (let i=1; i<=96; i++) {
     const t = new Date(Date.now() + i*STEP);
     const r = calcRel(w.band, w.mode, w.dist, u.lat, u.lon, w.lat, w.lon, w.pw||u.txPowerW, t);
-    if (r.rel >= thr && !first) first = {time:t, rel:r.rel};
     if (!best || r.rel > best.rel) best = {time:t, rel:r.rel};
+    if (r.rel >= thr && !first) first = {time:t, rel:r.rel};
   }
-  return first || best;
+  if (first) return {...first, isWindow:true};
+  return best ? {...best, isWindow:false} : null;
 }
 function evalAll() { S.watches.forEach(evalWatch); renderWatchList(); renderTimeline(); }
 
