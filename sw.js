@@ -1,5 +1,5 @@
 /* Propagation Watch — Service Worker v13 */
-const CACHE = 'pw-v13';
+const CACHE = 'pw-v14';
 const STATIC = ['./', './index.html', './manifest.json', './lib/suncalc.js', './js/app.js'];
 
 self.addEventListener('install', e => {

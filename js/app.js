@@ -65,7 +65,19 @@ function showScreen(id) {
   });
 }
 function goHome()     { showScreen('home');     renderHome(); }
-function goSettings() { showScreen('settings'); syncSettingsUI(); }
+function goSettings() {
+  showScreen('settings');
+  syncSettingsUI();
+  // Translate settings screen
+  const els = {
+    'settings-title': T('settings'),
+    'sh-data':  '📡 '+T('dataSources').replace('📡 ',''),
+    'sh-power': '⚡ '+T('powerLicense'),
+    'sh-loc':   '📍 '+T('locationLbl'),
+    'sh-disp':  '🎨 '+T('display'),
+  };
+  Object.entries(els).forEach(([id,txt])=>{const e=document.getElementById(id);if(e)e.textContent=txt;});
+}
 function goNewWatch() { showScreen('setup');    renderSetup(); }
 
 // ── NOAA ──
@@ -111,7 +123,15 @@ async function fetchNoaa() {
     const r = await tFetch(BASE + '/noaa-scales.json');
     const d = await r.json();
     S.prop.gScale = parseInt(d?.G?.Scale || 0);
-  } catch(e) { console.warn('Scales fetch:', e.message); }
+  } catch(e) {
+    // Derive G-scale from Kp if endpoint fails (CORS issue on some networks)
+    if (S.prop.kp != null) {
+      const kp = S.prop.kp;
+      S.prop.gScale = kp >= 7 ? 4 : kp >= 6 ? 3 : kp >= 5 ? 2 : kp >= 4 ? 1 : 0;
+      ok = true;
+    }
+    console.warn('Scales fetch failed, derived from Kp:', S.prop.gScale);
+  }
 
   if (ok) {
     S.prop.fetchedAt = new Date().toISOString();
@@ -158,7 +178,7 @@ const KP_MAT = {
   '6m':[1,1,1,.97,.88,.7,.5,.3,.12,.04]
 };
 const D_LAYER = {'160m':{max:.95,half:6},'80m':{max:.9,half:10},'40m':{max:.82,half:18},'30m':{max:.35,half:35}};
-const MODE_MARGIN = {FT8:20,FT4:18,JT65:22,CW:13,SSB:6,AM:4,MSK144:12};
+const MODE_MARGIN = {FT8:20,FT4:18,JT65:22,CW:13,SSB:10,AM:6,MSK144:12};
 
 function sunElev(lat, lon, date) {
   if (!window.SunCalc || lat==null || isNaN(lat)) return -90;
@@ -207,7 +227,7 @@ function multiHop(band, distKm) {
 function pwrFactor(pw, mode) {
   const db  = 10*Math.log10((pw||100)/100);
   const mg  = MODE_MARGIN[mode] || 10;
-  return Math.max(.1, Math.min(1.2, 1+db/mg));
+  return Math.max(0.15, Math.min(1.2, 1+db/mg));
 }
 
 function calcRel(band, mode, distKm, txLat, txLon, rxLat, rxLon, pw, atDate) {
@@ -816,36 +836,92 @@ function setTheme(light) {
 
 const STRINGS = {
   en: {
-    good:'● GOOD WINDOW', soon:'◑ OPENING SOON', wait:'○ WAITING', poor:'✕ CLOSED',
-    next:'Next:', until:'Until ~', overview:'Overview', settings:'Settings',
-    quickCheck:'Quick check', addWatch:'+ Watch', noWatches:'No watches yet',
-    addFirst:'+ Add watch', location:'Location not set',
+    good:'● GOOD WINDOW',    soon:'◑ OPENING SOON', wait:'○ WAITING',  poor:'✕ CLOSED',
+    next:'Next:',            until:'Until ~',        overview:'Overview', settings:'Settings',
+    quickCheck:'Quick check',addWatch:'+ Watch',     noWatches:'No watches yet',
+    addFirst:'+ Add watch',  location:'Location not set',
     locationHint:'Go to Settings → Location to enter your grid square',
-    setAlarm:'Set alarm', exportCal:'Export .ics',
-    alarmSet:'Alarm set — ', windowOpens:' — when window opens',
-    saved:'saved', classSet:'Class',
+    setAlarm:'Set alarm',    exportCal:'Export .ics',  alarmSet:'Alarm set — ',
+    windowOpens:' — when window opens', saved:'saved', classSet:'Class',
+    dataTitle:'Data Sources', powerTitle:'Power & License', locTitle:'Location',
+    displayTitle:'Display',   licClass:'License class',     txPower:'Transmit power',
+    qrpMode:'QRP mode (≤ 5W)', language:'Language', lightTheme:'Light theme',
+    gridSquare:'Grid square', saveLocation:'Save location', testAPI:'🔌 Test API',
+    noData:'No data — tap Test API',  cancel:'Cancel', createWatch:'Create watch →',
+    targetStation:'Target station',   chooseTarget:'Choose a region or enter a callsign prefix.',
+    yourLocation:'Your location',     locationSub:'Enter your callsign or grid square.',
+    continue:'Continue →',            band:'Band', mode:'Mode', threshold:'Alert at reliability ≥',
+    pathRel:'path reliability now',   bestWindow:'Best window', windowEnds:'Window ends ~',
+    openNow:'Open now — until ~',     noWindow:'No window expected today',
+    at100W:'At 100W:',                difference:'difference',
+    setAlarmBtn:'⏰ Set alarm',        exportBtn:'📅 Export .ics',
   },
   nl: {
-    good:'● GOED MOMENT', soon:'◑ OPENT BINNENKORT', wait:'○ WACHTEN', poor:'✕ GESLOTEN',
-    next:'Volgend:', until:'Tot ~', overview:'Overzicht', settings:'Instellingen',
-    quickCheck:'Snelle check', addWatch:'+ Watch', noWatches:'Nog geen watches',
-    addFirst:'+ Voeg toe', location:'Locatie niet ingesteld',
-    locationHint:'Ga naar Instellingen → Locatie om je grid square in te vullen',
-    setAlarm:'Alarm instellen', exportCal:'Exporteer .ics',
-    alarmSet:'Alarm ingesteld — ', windowOpens:' — zodra venster opent',
-    saved:'opgeslagen', classSet:'Klasse',
+    good:'● GOED MOMENT',    soon:'◑ OPENT BINNENKORT', wait:'○ WACHTEN', poor:'✕ GESLOTEN',
+    next:'Volgend:',         until:'Tot ~',              overview:'Overzicht', settings:'Instellingen',
+    quickCheck:'Snelle check',addWatch:'+ Watch',        noWatches:'Nog geen watches',
+    addFirst:'+ Toevoegen',  location:'Locatie niet ingesteld',
+    locationHint:'Ga naar Instellingen → Locatie en vul je grid square in',
+    setAlarm:'Alarm instellen', exportCal:'Exporteer .ics', alarmSet:'Alarm ingesteld — ',
+    windowOpens:' — zodra venster opent', saved:'opgeslagen', classSet:'Klasse',
+    dataTitle:'Gegevensbronnen', powerTitle:'Vermogen & Licentie', locTitle:'Locatie',
+    displayTitle:'Weergave',  licClass:'Licentieklasse',  txPower:'Zendvermogen',
+    qrpMode:'QRP-modus (≤ 5W)', language:'Taal', lightTheme:'Licht thema',
+    gridSquare:'Grid square', saveLocation:'Locatie opslaan', testAPI:'🔌 Test API',
+    noData:'Geen data — druk op Test API', cancel:'Annuleren', createWatch:'Watch aanmaken →',
+    targetStation:'Doelstation',  chooseTarget:'Kies een regio of voer een callsign/prefix in.',
+    yourLocation:'Uw locatie',    locationSub:'Voer uw callsign of grid square in.',
+    continue:'Verder →',          band:'Band', mode:'Modus', threshold:'Alarm bij betrouwbaarheid ≥',
+    pathRel:'padbetrouwbaarheid nu', bestWindow:'Beste venster', windowEnds:'Venster sluit ~',
+    openNow:'Nu open — tot ~',    noWindow:'Geen venster verwacht vandaag',
+    at100W:'Bij 100W:',           difference:'verschil',
+    setAlarmBtn:'⏰ Alarm instellen', exportBtn:'📅 Exporteer .ics',
   }
 };
 function T(key) { return (STRINGS[S.user.lang||'en']||STRINGS.en)[key] || key; }
 
+function applyLanguage() {
+  // Nav tabs
+  const tabs = document.querySelectorAll('.nav-tab');
+  if (tabs[0]) { const t=tabs[0]; t.lastChild.textContent=' '+T('overview'); }
+  if (tabs[2]) { const t=tabs[2]; t.lastChild.textContent=' '+T('settings'); }
+  // Settings headings
+  const headings = {
+    'sh-data':   T('dataTitle'),
+    'sh-power':  T('powerTitle'),
+    'sh-loc':    T('locTitle'),
+    'sh-display':T('displayTitle'),
+    'sh-settings': T('settings'),
+  };
+  Object.entries(headings).forEach(([id,txt]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = txt;
+  });
+  // Settings labels
+  const labels = {
+    'lbl-licclass': T('licClass'),
+    'lbl-power':    T('txPower'),
+    'lbl-qrp':      T('qrpMode'),
+    'lbl-lang':     T('language'),
+    'lbl-theme':    T('lightTheme'),
+    'lbl-grid':     T('gridSquare'),
+    'btn-saveloc':  T('saveLocation'),
+  };
+  Object.entries(labels).forEach(([id,txt]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = txt;
+  });
+  // Quick check and + Watch buttons
+  const qc = document.getElementById('btn-quickcheck');
+  const aw = document.getElementById('btn-addwatch');
+  if (qc) qc.textContent = T('quickCheck');
+  if (aw) aw.textContent = T('addWatch');
+}
+
 function saveLang(lang) {
-  S.user.lang=lang;
+  S.user.lang = lang;
   saveUser();
-  // Update nav labels
-  const navLabels = document.querySelectorAll('.nav-tab');
-  if (navLabels[0]) navLabels[0].childNodes[navLabels[0].childNodes.length-1].textContent = T('overview');
-  if (navLabels[2]) navLabels[2].childNodes[navLabels[2].childNodes.length-1].textContent = T('settings');
-  // Re-render watch list with new language
+  applyLanguage();
   renderWatchList();
   toast(lang==='nl'?'Taal: Nederlands':'Language: English','info');
 }
@@ -906,11 +982,19 @@ async function doTestAPI() {
     for(const k of Object.keys(last)){const v=parseFloat(last[k]);if(!isNaN(v)&&v>50&&v<500)return v;}
     throw new Error('No SFI found — fields: '+Object.keys(d[d.length-1]||{}).join(', '));
   });
-  await testOne('scales',apiURLs.scales,d=>{
-    // noaa-scales.json geeft {"G":{"Scale":"1",...},...}
-    const g=parseInt(d?.G?.Scale||d?.Geomagnetic?.Scale||0);
-    return isNaN(g)?0:g;
-  });
+  // Storm scales: derive from Kp if fetch fails (noaa-scales.json has CORS issues on some networks)
+  try {
+    await testOne('scales', apiURLs.scales, d=>{
+      const g=parseInt(d?.G?.Scale||d?.Geomagnetic?.Scale||0);
+      return isNaN(g)?0:g;
+    });
+  } catch(e) {
+    // Derive G-scale from Kp as fallback
+    const kp = S.prop.kp || 0;
+    apiSt.scales = {ok:true, val:kp>=8?5:kp>=7?4:kp>=6?3:kp>=5?2:kp>=4?1:0,
+                    err:null, ms:0};
+    renderAPIEndpoints();
+  }
 
   const anyOk = apiSt.kp.ok||apiSt.sfi.ok;
   if(anyOk) {
@@ -954,6 +1038,7 @@ function renderAPIEndpoints() {
 document.addEventListener('DOMContentLoaded', function() {
   // Apply saved theme
   document.documentElement.setAttribute('data-theme', S.user.theme||'dark');
+  applyLanguage();
 
   // Route
   if (!S.user.configured) {

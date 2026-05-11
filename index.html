@@ -256,8 +256,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   </div>
   <div id="watch-list"></div>
   <div class="fab-row">
-    <button class="fab fab-sec" onclick="goNewWatch()">Quick check</button>
-    <button class="fab fab-pri" onclick="goNewWatch()">+ Watch</button>
+    <button id="btn-quickcheck" class="fab fab-sec" onclick="goNewWatch()">Quick check</button>
+    <button id="btn-addwatch" class="fab fab-pri" onclick="goNewWatch()">+ Watch</button>
   </div>
 </section>
 
@@ -279,12 +279,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 <section id="screen-settings" class="screen">
   <div class="settings-head">
     <button class="det-back-btn" onclick="goHome()">←</button>
-    <h2 style="font-size:18px;font-weight:700">Settings</h2>
+    <h2 id="sh-settings" style="font-size:18px;font-weight:700">Settings</h2>
   </div>
 
   <!-- API -->
   <div class="card">
-    <h3 style="font-weight:600;margin-bottom:12px">📡 Data Sources</h3>
+    <h3 style="font-weight:600;margin-bottom:12px"><span id="sh-data">📡 Data Sources</span></h3>
     <div id="api-status-box" style="font-size:13px;color:var(--tx2);margin-bottom:10px">
       Tap Test API to check NOAA connectivity.
     </div>
@@ -296,9 +296,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 
   <!-- Power -->
   <div class="card">
-    <h3 style="font-weight:600;margin-bottom:12px">⚡ Power &amp; License</h3>
+    <h3 style="font-weight:600;margin-bottom:12px"><span id="sh-power">⚡ Power &amp; License</span></h3>
     <div style="margin-bottom:12px">
-      <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:8px">License class</label>
+      <label id="lbl-licclass" style="font-size:12px;color:var(--tx2);display:block;margin-bottom:8px">License class</label>
       <div class="lic-list">
         <button class="lic-btn" id="lic-C" onclick="setLicClass('C')">
           <span style="font-weight:700">Class C</span>
@@ -316,7 +316,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
     </div>
     <div>
       <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:6px">
-        Transmit power: <span id="pwr-val" style="font-family:var(--mono);color:var(--tx1)">100W</span>
+        <span id="lbl-power">Transmit power</span>: <span id="pwr-val" style="font-family:var(--mono);color:var(--tx1)">100W</span>
         <span id="pwr-db" style="font-size:11px;color:var(--tx3)"> (ref 100W)</span>
       </label>
       <input type="range" id="pwr-slider" min="1" max="1500" step="1" value="100"
@@ -328,7 +328,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
       <div id="pwr-hint" style="font-size:12px;color:var(--tx3);margin-top:6px"></div>
     </div>
     <div class="toggle-row" style="margin-top:14px">
-      <span style="font-size:13px">QRP mode (≤ 5W)</span>
+      <span id="lbl-qrp" style="font-size:13px">QRP mode (≤ 5W)</span>
       <label class="toggle-wrap">
         <input type="checkbox" id="qrp-tog" onchange="setQRP(this.checked)"/>
         <span class="toggle-track"></span>
@@ -338,26 +338,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 
   <!-- Location -->
   <div class="card">
-    <h3 style="font-weight:600;margin-bottom:12px">📍 Location</h3>
+    <h3 style="font-weight:600;margin-bottom:12px"><span id="sh-loc">📍 Location</span></h3>
     <div class="field">
-      <label>Grid square</label>
+      <label id="lbl-grid">Grid square</label>
       <input id="grid-inp" placeholder="e.g. JO20ev" autocapitalize="characters" style="text-transform:uppercase"/>
     </div>
-    <button class="btn btn-pri" onclick="saveLocation()">Save location</button>
+    <button id="btn-saveloc" class="btn btn-pri" onclick="saveLocation()">Save location</button>
   </div>
 
   <!-- Display -->
   <div class="card">
-    <h3 style="font-weight:600;margin-bottom:12px">🎨 Display</h3>
+    <h3 style="font-weight:600;margin-bottom:12px"><span id="sh-display">🎨 Display</span></h3>
     <div class="field" style="margin-bottom:12px">
-      <label>Language</label>
+      <label id="lbl-lang">Language</label>
       <select id="lang-sel" onchange="saveLang(this.value)">
         <option value="en">English</option>
         <option value="nl">Nederlands</option>
       </select>
     </div>
     <div class="toggle-row">
-      <span style="font-size:13px">Light theme</span>
+      <span id="lbl-theme" style="font-size:13px">Light theme</span>
       <label class="toggle-wrap">
         <input type="checkbox" id="theme-tog" onchange="setTheme(this.checked)"/>
         <span class="toggle-track"></span>
