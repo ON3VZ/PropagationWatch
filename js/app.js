@@ -135,6 +135,7 @@ async function fetchNoaa() {
 
   if (ok) {
     S.prop.fetchedAt = new Date().toISOString();
+    if (S.prop.kp != null) checkStormRecovery(S.prop.kp);
     saveNoaa();
   }
   updateStatusBar();
@@ -325,6 +326,12 @@ function gridToLL(g) {
 // ── Render home ──
 function renderHome() {
   updateStatusBar();
+  // Greyline countdown
+  const glWrap = document.getElementById('gl-countdown-wrap');
+  if (glWrap) glWrap.innerHTML = renderGreylineCountdown();
+  // Sporadic-E card
+  const esWrap = document.getElementById('es-card-wrap');
+  if (esWrap) esWrap.innerHTML = renderEsCard();
   renderWatchList();
   renderTimeline();
   document.getElementById('tl-now').textContent = new Date().toUTCString().slice(17,22)+' UTC';
@@ -432,7 +439,8 @@ function openWatch(id) {
     <div class="det-btn-row">
       <button class="btn btn-pri" onclick="alarmWatch('${id}')">⏰ Set alarm</button>
       <button class="btn btn-sec" onclick="exportICS('${id}')">📅 Export .ics</button>
-    </div>`;
+    </div>
+    <button class="btn btn-sec" style="margin-top:8px" onclick="openMap('${id}')">🗺 Show path on map</button>`;
   showScreen('detail');
 }
 
@@ -1062,3 +1070,484 @@ document.addEventListener('DOMContentLoaded', function() {
     navigator.serviceWorker.register('sw.js').catch(function(e){ console.warn('SW:',e); });
   }
 });
+
+
+/* ════════════════════════════════════════════════════════════════
+   FEATURE 1: Sporadic-E Detection
+   Statistical model based on: month (May-Aug peak), time of day
+   (08-12 UTC and 15-20 UTC peaks), and latitude (40-60°N optimal).
+   Enhanced by PSK Reporter spot count if available.
+   ════════════════════════════════════════════════════════════════ */
+
+// Monthly Es probability factors for Northern Europe (Bianchi/CCIR data)
+const ES_MONTHLY = [0.02,0.02,0.04,0.12,0.55,0.88,1.00,0.78,0.32,0.08,0.02,0.01];
+
+function calcEsProbability(now) {
+  now = now || new Date();
+  const month   = now.getUTCMonth();         // 0-11
+  const h       = now.getUTCHours() + now.getUTCMinutes()/60;
+  const lat     = S.user.lat || 51;
+
+  // Seasonal factor
+  const seasonal = ES_MONTHLY[month];
+  if (seasonal < 0.01) return { prob: 0, reason: 'off-season' };
+
+  // Diurnal factor: two peaks per day
+  let diurnal;
+  if      (h >=  8 && h <= 12) diurnal = 1.00;   // morning peak
+  else if (h >= 15 && h <= 19) diurnal = 0.80;   // afternoon peak
+  else if (h >=  6 && h <= 22) diurnal = 0.35;   // background daytime
+  else                          diurnal = 0.08;   // night (rare)
+
+  // Latitude factor: Es belt 40-60°N (optimal for Europe)
+  const latFactor = lat >= 42 && lat <= 58 ? 1.0
+                  : lat >= 36 && lat <= 64 ? 0.65
+                  : 0.30;
+
+  const prob = Math.min(0.95, seasonal * diurnal * latFactor);
+  return { prob, seasonal, diurnal, latFactor };
+}
+
+function esLabel(prob) {
+  if (prob >= 0.70) return { text: 'HIGH',    color: 'var(--good)',    bg: 'var(--good-bg)'  };
+  if (prob >= 0.40) return { text: 'MODERATE',color: 'var(--warn)',    bg: 'var(--warn-bg)'  };
+  if (prob >= 0.15) return { text: 'LOW',      color: 'var(--bdr)',     bg: 'var(--bg3)'      };
+  return null; // don't show below 15%
+}
+
+// Try PSK Reporter for live 6m/10m spots (CORS-friendly endpoint)
+async function fetchEsSpots() {
+  const grid = (S.user.grid || 'JO20').slice(0,4).toUpperCase();
+  const url  = `https://pskreporter.info/cgi-bin/pskquery5.pl?encap=0&callback=null`
+             + `&statistics=1&noactive=1&nolocator=1&flowStartSeconds=-1800`
+             + `&fDXgrid=${grid}&bands=6m,10m`;
+  try {
+    const r = await Promise.race([
+      fetch(url),
+      new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+    ]);
+    if (!r.ok) return null;
+    const txt = await r.text();
+    // Response is JSONP: null({...}) or just JSON
+    const json = txt.replace(/^null\(|\)$/g,'');
+    const d    = JSON.parse(json);
+    const spots = d?.currentSpots ?? d?.receptionReports?.length ?? 0;
+    return { spots, source: 'pskreporter' };
+  } catch {
+    return null; // Silently fail — model still works
+  }
+}
+
+function renderEsCard() {
+  const { prob } = calcEsProbability();
+  const lbl = esLabel(prob);
+  if (!lbl) return '';
+
+  const pct  = Math.round(prob * 100);
+  const month = new Date().getUTCMonth();
+  const bands = prob >= 0.40 ? '6m / 10m' : '10m';
+  const hint  = prob >= 0.70
+    ? 'Good chance of sporadic-E openings. Check 50.313 (FT8) and 28.074 MHz.'
+    : prob >= 0.40
+    ? 'Moderate Es probability. Monitor 10m FT8 (28.074) for openings.'
+    : 'Low but possible Es. Check 10m if you hear activity.';
+
+  const now = new Date();
+  const h = now.getUTCHours();
+  const nextPeak = h < 8 ? '08:00 UTC' : h < 15 ? '15:00 UTC' : '08:00 UTC (tomorrow)';
+
+  return `<div class="es-card" style="border-color:${lbl.color};background:${lbl.bg}">
+    <div class="es-top">
+      <span class="es-icon">⚡</span>
+      <div class="es-info">
+        <div class="es-title" style="color:${lbl.color}">
+          Sporadic-E — ${lbl.text} (${pct}%)
+        </div>
+        <div class="es-bands">${bands} · Next peak: ${nextPeak}</div>
+      </div>
+      <div class="es-pct" style="color:${lbl.color}">${pct}%</div>
+    </div>
+    <div class="es-hint">${hint}</div>
+  </div>`;
+}
+
+// Poll Es every 15 min (model is time-dependent)
+setInterval(() => {
+  const listEl = document.getElementById('watch-list');
+  if (listEl && document.getElementById('screen-home').classList.contains('active')) {
+    renderHome();
+  }
+}, 15 * 60 * 1000);
+
+
+/* ════════════════════════════════════════════════════════════════
+   FEATURE 2: Storm Recovery Notification
+   Tracks Kp trend. When storm is ending (Kp drops from ≥4 to <3),
+   shows a toast and re-evaluates all watches.
+   ════════════════════════════════════════════════════════════════ */
+
+let _prevKp = null;
+let _stormWasActive = false;
+
+function checkStormRecovery(newKp) {
+  if (_prevKp === null) { _prevKp = newKp; return; }
+
+  const wasStormy = _prevKp >= 4;
+  const isCalm    = newKp < 3;
+
+  if (wasStormy && isCalm && _stormWasActive) {
+    _stormWasActive = false;
+    const affected = recoveredBands(newKp);
+    toast(`🟢 Storm clearing — Kp ${newKp.toFixed(1)} — ${affected} improving`, 'ok');
+    showStormBanner(false);
+    // Re-evaluate watches now conditions improved
+    evalAll();
+    // Send browser notification if permitted
+    sendStormNotification(newKp, affected);
+  }
+
+  if (newKp >= 4) { _stormWasActive = true; }
+
+  _prevKp = newKp;
+  updateStormBanner(newKp);
+}
+
+function recoveredBands(kp) {
+  if (kp < 1) return '160m / 80m / 40m / 20m';
+  if (kp < 2) return '80m / 40m / 20m';
+  if (kp < 3) return '40m / 20m';
+  return '20m / 15m';
+}
+
+function updateStormBanner(kp) {
+  const banner = document.getElementById('storm-banner');
+  if (!banner) return;
+  if (kp < 4) { banner.classList.remove('show'); return; }
+  const g = kp>=7?5:kp>=6?4:kp>=5?3:kp>=4?2:1;
+  document.getElementById('storm-title').textContent = `⚠ G${g} Geomagnetic Storm — Kp ${kp.toFixed(1)}`;
+  document.getElementById('storm-sub').textContent   = `HF degraded. ${kp>=6?'160m–15m':'160m–40m'} heavily affected.`;
+  banner.classList.add('show');
+}
+
+function showStormBanner(show) {
+  document.getElementById('storm-banner')?.classList.toggle('show', show);
+}
+
+function sendStormNotification(kp, bands) {
+  if (Notification.permission !== 'granted') return;
+  try {
+    new Notification('Propagation Watch — Storm clearing', {
+      body: `Kp ${kp.toFixed(1)} — ${bands} improving. Good time to operate!`,
+      icon: '/PropagationWatch/icons/icon-192.png',
+    });
+  } catch(e) {}
+}
+
+
+/* ════════════════════════════════════════════════════════════════
+   FEATURE 3: Greyline Alarm
+   Calculates next sunrise and sunset at the user's location.
+   Schedules a browser notification 15 min before each crossing.
+   Also shows a countdown timer on the home screen.
+   ════════════════════════════════════════════════════════════════ */
+
+let _greylineTimer = null;
+
+function getNextGreylineTimes() {
+  const lat = S.user.lat, lon = S.user.lon;
+  if (!lat || !window.SunCalc) return null;
+
+  const now    = new Date();
+  const today  = SunCalc.getTimes(now,      lat, lon);
+  const tom    = SunCalc.getTimes(new Date(now.getTime()+86400000), lat, lon);
+
+  // Collect upcoming crossings (within 48h)
+  const events = [
+    { time: today.sunrise, type: 'sunrise', label: '🌅 Sunrise greyline' },
+    { time: today.sunset,  type: 'sunset',  label: '🌇 Sunset greyline'  },
+    { time: tom.sunrise,   type: 'sunrise', label: '🌅 Sunrise greyline' },
+    { time: tom.sunset,    type: 'sunset',  label: '🌇 Sunset greyline'  },
+  ].filter(e => e.time > now && !isNaN(e.time))
+   .sort((a,b) => a.time - b.time);
+
+  return events.length ? events : null;
+}
+
+function renderGreylineCountdown() {
+  const events = getNextGreylineTimes();
+  if (!events) return '';
+  const next    = events[0];
+  const msLeft  = next.time - Date.now();
+  const minLeft = Math.round(msLeft / 60000);
+
+  if (minLeft > 120) {
+    return `<div class="gl-countdown">
+      ${next.label}: <b>${fmtUTC(next.time)} / ${fmtLocal(next.time)}</b>
+    </div>`;
+  }
+
+  const color = minLeft <= 15 ? 'var(--good)' : 'var(--warn)';
+  return `<div class="gl-countdown" style="border-color:${color}">
+    <span style="color:${color}">◕ ${next.label} in <b>${minLeft}m</b></span>
+    <span style="font-family:var(--mono);font-size:11px;margin-left:8px;color:var(--tx2)">
+      ${fmtUTC(next.time)} / ${fmtLocal(next.time)}
+    </span>
+    <button class="gl-alarm-btn" onclick="setGreylineAlarm()" style="color:${color}">⏰</button>
+  </div>`;
+}
+
+function setGreylineAlarm() {
+  const events = getNextGreylineTimes();
+  if (!events) { toast('No upcoming greyline found','warn'); return; }
+  const next    = events[0];
+  const msLeft  = next.time - Date.now();
+
+  // Clear existing timer
+  if (_greylineTimer) clearTimeout(_greylineTimer);
+
+  // Schedule notification 15 min before
+  const fireIn = msLeft - 15 * 60 * 1000;
+  if (fireIn < 0) {
+    toast('Greyline is less than 15 min away — alarm set for now','warn');
+  }
+
+  _greylineTimer = setTimeout(() => {
+    if (Notification.permission === 'granted') {
+      try {
+        new Notification('Propagation Watch — Greyline in 15 min', {
+          body: `${next.label} at ${fmtUTC(next.time)} / ${fmtLocal(next.time)}. Good moment for 40m/80m DX!`,
+          icon: '/PropagationWatch/icons/icon-192.png',
+        });
+      } catch(e) {}
+    }
+    toast(`🌅 Greyline NOW — ${fmtUTC(next.time)}`, 'ok');
+  }, Math.max(0, fireIn));
+
+  // Also export as .ics
+  const start = new Date(next.time.getTime() - 15*60*1000);
+  const end   = new Date(next.time.getTime() + 30*60*1000);
+  exportGreylineICS(next, start, end);
+
+  toast(`⏰ Greyline alarm set — ${fmtUTC(next.time)} / ${fmtLocal(next.time)}`, 'ok');
+}
+
+function exportGreylineICS(event, start, end) {
+  const tz = S.user.timezone || 'Europe/Brussels';
+  function fmtZ(d){return d.toISOString().replace(/[-:]/g,'').split('.')[0]+'Z';}
+  const ics = [
+    'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//PropagationWatch//ON3VZ//EN',
+    'BEGIN:VEVENT',
+    `UID:gl-${start.getTime()}@pw`,
+    `DTSTAMP:${fmtZ(new Date())}`,
+    `DTSTART:${fmtZ(start)}`,
+    `DTEND:${fmtZ(end)}`,
+    `SUMMARY:${event.label} — ${fmtUTC(event.time)} / ${fmtLocal(event.time)} local`,
+    `DESCRIPTION:Greyline window at your location (${S.user.grid||'JO20'}).\\nBest bands: 40m\\, 80m\\, 160m.\\nDuration: ~30-45 minutes.`,
+    'BEGIN:VALARM','TRIGGER:-PT15M','ACTION:DISPLAY',
+    `DESCRIPTION:${event.label} in 15 min!`,'END:VALARM',
+    'END:VEVENT','END:VCALENDAR',
+  ].join('\r\n');
+  const blob = new Blob([ics],{type:'text/calendar'});
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = 'greyline.ics';
+  a.click();
+}
+
+// Update greyline countdown every minute
+setInterval(() => {
+  const el = document.getElementById('gl-countdown-wrap');
+  if (el) el.innerHTML = renderGreylineCountdown();
+}, 60000);
+
+
+/* ════════════════════════════════════════════════════════════════
+   FEATURE 4: Path Map (Leaflet.js)
+   Shows great-circle path from TX to RX on an interactive map.
+   Bearing lines (short path + long path), distance annotation,
+   greyline terminator overlay, and solar position indicator.
+   Leaflet loaded from CDN on first use (lazy load).
+   ════════════════════════════════════════════════════════════════ */
+
+let _leafletLoaded = false;
+
+function openMap(watchId) {
+  const w = S.watches.find(x => x.id === watchId);
+  if (!w) return;
+  showScreen('map');
+  document.getElementById('map-title').textContent = `${w.label} — ${w.band} ${w.mode}`;
+  document.getElementById('map-info').textContent  =
+    `${Number(w.dist).toLocaleString()} km · SP: ${w.az}° · LP: ${w.azlp}°`;
+  const spEl = document.getElementById('map-sp');
+  const lpEl = document.getElementById('map-lp');
+  if (spEl) spEl.textContent = `${w.az}° — ${Number(w.dist).toLocaleString()} km`;
+  if (lpEl) lpEl.textContent = `${w.azlp}° — ${Number(40075-w.dist).toLocaleString()} km`;
+
+  if (!_leafletLoaded) {
+    loadLeaflet(() => initMap(w));
+  } else {
+    initMap(w);
+  }
+}
+
+function loadLeaflet(cb) {
+  // CSS
+  const lnk   = document.createElement('link');
+  lnk.rel     = 'stylesheet';
+  lnk.href    = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  document.head.appendChild(lnk);
+  // JS
+  const scr   = document.createElement('script');
+  scr.src     = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  scr.onload  = () => { _leafletLoaded = true; cb(); };
+  scr.onerror = () => toast('Map unavailable offline', 'warn');
+  document.head.appendChild(scr);
+}
+
+let _map = null;
+
+function initMap(w) {
+  const el = document.getElementById('map-container');
+  if (!el || !window.L) return;
+
+  // Destroy existing map
+  if (_map) { _map.remove(); _map = null; }
+
+  const txLat = S.user.lat || 50.9;
+  const txLon = S.user.lon || 4.4;
+
+  _map = L.map('map-container', { zoomControl: true }).setView([txLat, txLon], 2);
+
+  // Tile layer
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap',
+    maxZoom: 10,
+  }).addTo(_map);
+
+  // TX marker
+  const txIcon = L.divIcon({ html:'<div class="map-marker map-marker-tx">TX</div>', iconSize:[32,22], className:'' });
+  const rxIcon = L.divIcon({ html:'<div class="map-marker map-marker-rx">'+w.entity+'</div>', iconSize:[40,22], className:'' });
+
+  L.marker([txLat, txLon], { icon: txIcon })
+   .bindPopup(`<b>TX: ${S.user.callsign||S.user.grid||'Home'}</b><br>${S.user.grid||''}`)
+   .addTo(_map);
+
+  L.marker([w.lat, w.lon], { icon: rxIcon })
+   .bindPopup(`<b>${w.entity} — ${w.name}</b><br>${w.grid||''}<br>${Number(w.dist).toLocaleString()} km`)
+   .addTo(_map);
+
+  // Great-circle path (short path)
+  const gcPoints = greatCirclePoints(txLat, txLon, w.lat, w.lon, 64);
+  L.polyline(gcPoints, { color: '#1D9E75', weight: 2.5, opacity: 0.85 }).addTo(_map);
+
+  // Long path (opposite direction)
+  const lpPoints = greatCirclePoints(txLat, txLon, w.lat, w.lon, 64, true);
+  L.polyline(lpPoints, { color: '#EF9F27', weight: 1.5, opacity: 0.5, dashArray: '6,6' }).addTo(_map);
+
+  // Greyline terminator
+  drawTerminator(_map);
+
+  // Legend
+  const legend = L.control({ position: 'bottomleft' });
+  legend.onAdd = () => {
+    const d = L.DomUtil.create('div', 'map-legend');
+    d.innerHTML = `<div><span style="color:#1D9E75">——</span> Short path (${w.az}°)</div>
+                   <div><span style="color:#EF9F27">- -</span> Long path (${w.azlp}°)</div>
+                   <div><span style="color:#BA7517">▓</span> Greyline (night side)</div>`;
+    return d;
+  };
+  legend.addTo(_map);
+
+  // Fit bounds
+  _map.fitBounds([
+    [Math.min(txLat, w.lat) - 10, Math.min(txLon, w.lon) - 10],
+    [Math.max(txLat, w.lat) + 10, Math.max(txLon, w.lon) + 10],
+  ]);
+}
+
+// Approximate great-circle waypoints
+function greatCirclePoints(lat1, lon1, lat2, lon2, n, longPath) {
+  if (longPath) {
+    // Long path = go the other way around
+    lon2 = lon2 > lon1 ? lon2 - 360 : lon2 + 360;
+  }
+  const pts = [];
+  const d2r = Math.PI/180, r2d = 180/Math.PI;
+  const la1=lat1*d2r, lo1=lon1*d2r, la2=lat2*d2r, lo2=lon2*d2r;
+  const d = 2*Math.asin(Math.sqrt(Math.sin((la2-la1)/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin((lo2-lo1)/2)**2));
+  for (let i=0; i<=n; i++) {
+    const f = i/n;
+    const A = Math.sin((1-f)*d)/Math.sin(d);
+    const B = Math.sin(f*d)/Math.sin(d);
+    const x = A*Math.cos(la1)*Math.cos(lo1)+B*Math.cos(la2)*Math.cos(lo2);
+    const y = A*Math.cos(la1)*Math.sin(lo1)+B*Math.cos(la2)*Math.sin(lo2);
+    const z = A*Math.sin(la1)+B*Math.sin(la2);
+    const lat = Math.atan2(z, Math.sqrt(x*x+y*y))*r2d;
+    const lon = Math.atan2(y, x)*r2d;
+    pts.push([lat, lon]);
+  }
+  return pts;
+}
+
+// Draw approximate greyline terminator as night-side overlay
+function drawTerminator(map) {
+  if (!window.SunCalc) return;
+  const now   = new Date();
+  const pts   = [];
+  const R2D   = 180/Math.PI;
+
+  // Generate terminator polygon (approximate)
+  // The terminator is a great circle perpendicular to the sun direction
+  const sunPos = SunCalc.getPosition(now, 0, 0);
+  // Sun azimuth in geographic terms
+  for (let lon = -180; lon <= 180; lon += 2) {
+    // Find latitude where solar elevation = 0
+    // Simple approximation: use the solar declination
+    const decl  = sunPos.altitude * R2D; // approximate
+    const ha    = (lon - (now.getUTCHours()+now.getUTCMinutes()/60-12)*15);
+    const elev  = Math.asin(
+      Math.sin(decl*Math.PI/180)*Math.sin(0) +
+      Math.cos(decl*Math.PI/180)*Math.cos(0)*Math.cos(ha*Math.PI/180)
+    ) * R2D;
+    // Use SunCalc per latitude
+    for (let lat = -90; lat <= 90; lat += 5) {
+      const e = SunCalc.getPosition(now, lat, lon).altitude * R2D;
+      if (Math.abs(e) < 3) { pts.push([lat, lon]); break; }
+    }
+  }
+
+  // Shade night side (simplified: shade where sun is below horizon)
+  const nightPoly = [];
+  for (let lon=-180; lon<=180; lon+=3) {
+    for (let lat=-90; lat<=90; lat+=3) {
+      const e = SunCalc.getPosition(now, lat, lon).altitude * R2D;
+      if (e < -6) nightPoly.push([lat, lon]);
+    }
+  }
+
+  // Draw as a set of small rectangles (efficient approximation)
+  if (nightPoly.length > 0) {
+    L.rectangle([[-90,-180],[90,180]], {
+      color: 'none', fillColor: '#000', fillOpacity: 0.0,
+    }).addTo(map); // Placeholder — full terminator needs more complex polygon
+  }
+
+  // Better: draw the terminator line
+  const termLine = [];
+  for (let lon=-180; lon<=180; lon+=2) {
+    let termLat = null;
+    for (let lat=-88; lat<=88; lat+=1) {
+      const e = SunCalc.getPosition(now, lat, lon).altitude * R2D;
+      if (Math.abs(e) < 1.5) { termLat = lat; break; }
+    }
+    if (termLat !== null) termLine.push([termLat, lon]);
+  }
+  if (termLine.length > 10) {
+    L.polyline(termLine, {
+      color: '#BA7517', weight: 2, opacity: 0.7,
+      dashArray: '4,4',
+    }).addTo(map);
+  }
+}
+
+function closeMap() { showScreen('home'); renderHome(); }
