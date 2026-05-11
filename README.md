@@ -4,10 +4,8 @@
 
 > *"Is it worth switching on the rig right now — and if not, when?"*
 
-Propagation Watch answers that one question. No raw data, no charts to interpret. Human language, countdowns, alarms, and calendar export.
-
 **Live app:** [on3vz.github.io/PropagationWatch](https://on3vz.github.io/PropagationWatch)  
-**Developer:** ON3VZ · JO20ev · Hoboken (Antwerpen) · WLD/ON6WL
+**Developer:** ON3VZ · JO20ev · Hoboken (Antwerpen) · WLD/ON6WL · IC-7300 MkII
 
 ---
 
@@ -15,106 +13,156 @@ Propagation Watch answers that one question. No raw data, no charts to interpret
 
 1. [What it does](#what-it-does)
 2. [Quick start](#quick-start)
-3. [Watches explained](#watches-explained)
-4. [Field reference](#field-reference)
-5. [How the calculations work](#how-the-calculations-work)
-6. [Data sources](#data-sources)
-7. [Settings reference](#settings-reference)
-8. [Calendar export & alarms](#calendar-export--alarms)
-9. [Technical architecture](#technical-architecture)
-10. [Limitations and honesty](#limitations-and-honesty)
-11. [License](#license)
+3. [Home screen](#home-screen)
+4. [Watches](#watches)
+5. [Field reference — what each value means](#field-reference)
+6. [How the calculations work](#how-the-calculations-work)
+7. [Features](#features)
+8. [Settings reference](#settings-reference)
+9. [Calendar export & alarms](#calendar-export--alarms)
+10. [Architecture](#architecture)
+11. [Data sources](#data-sources)
+12. [Limitations and honesty](#limitations-and-honesty)
+13. [Planned extensions](#planned-extensions)
 
 ---
 
 ## What it does
 
-The app monitors HF propagation conditions between your location and your configured target stations. For each **watch** (a target station + band + mode combination), it continuously calculates a **path reliability** score and tells you:
+Propagation Watch monitors HF propagation conditions between your location and your configured target stations. For each **watch** (target + band + mode combination) it continuously calculates a **path reliability** score and tells you:
 
-- **Now:** what is the current reliability percentage?
-- **Next window:** when will conditions be best in the next 24 hours?
-- **Alarm:** set a browser notification or export a calendar event (.ics) so your phone wakes you up at the right moment
+- **Now:** what is the reliability percentage for this path at this moment?
+- **Next window:** when will conditions be good enough to operate?
+- **Greyline:** countdown to the next sunrise/sunset greyline crossing at your location
+- **Sporadic-E:** probability of Es openings on 10m and 6m
+- **DX spots:** live spots from DX clusters matched against your watches
+- **Storm alert:** notification when a geomagnetic storm is clearing
 
-The app does **not** show raw propagation data. Everything is translated into a decision: good / wait / closed.
+The app does **not** show raw data tables. Everything is translated into a decision: good / wait / closed.
+
+**Privacy:** your location (grid square) never leaves your browser. All calculations are client-side. No account, no tracking, no ads.
 
 ---
 
 ## Quick start
 
-### 1. First setup
+### First run
 
-Open the app for the first time. The setup wizard asks for:
+Open the app. The setup wizard asks for:
 
-- **Your grid square** — e.g. `JO20ev`. This is used to calculate solar elevation at your location (for D-layer and greyline), distances to target stations, and bearings. A 4-character grid (JO20) is sufficient; 6 characters (JO20ev) gives slightly more accurate greyline timing.
-- **License class** — determines the maximum transmit power available to you. This affects path reliability calculations.
-- **Transmit power** — your actual operating power. Important for marginal paths.
-- **Notification permission** — optional. You can always use calendar export instead.
+1. **Your grid square or callsign** — e.g. `JO20ev` or `ON3VZ`. Used for D-layer absorption, greyline timing, path distances and bearings. 6-character grid (JO20ev) gives best greyline accuracy (±5 km vs ±70 km for 4-character JO20).
 
-### 2. Add a watch
+2. **License class** — determines max transmit power. Belgian/CEPT: C = 25W, B = 100W, A = 1500W. Affects all reliability calculations.
 
-Tap **+ Watch** (bottom navigation). Choose a target region from the suggestion grid or type a callsign/prefix manually (e.g. `VP8`, `JA`, `W1`). Select band and mode. Set the reliability threshold for your alarm (default: 60%).
+3. **Transmit power** — your actual operating power. Important for marginal paths.
 
-### 3. Read the overview screen
+4. **Notification permission** — optional. Required for greyline and storm-recovery alerts. You can always use calendar export (.ics) instead.
 
-Each watch card shows:
+### Add a watch
 
-```
-VP8 Falkland                [⏰] [🗑]
-40m · CW · 12,847 km · 222°
+Tap **+ Watch**. Choose a target from the suggestion grid (10 common DX entities from JO20ev with pre-calculated distances and bearings) or type a prefix manually (e.g. `VP8`, `JA`, `W`). Select band and mode. Set your reliability threshold (default: 60%).
 
-● GOOD WINDOW              84%
-  Until ~22:15 UTC
-```
-
-Or when waiting:
+### Read the home screen
 
 ```
-JA1 Japan                   [⏰] [🗑]
-20m · FT8 · 9,220 km · 47°
+Kp 2.0   SFI 120   G0   0m ago                    [↺]
 
-○ WAITING                  12%
-  Next window: 01:30 UTC · 71%
+🌅 Sunset greyline in 23m — 20:14 UTC / 22:14 local  [⏰]
+
+24h timeline ─────────────────────────────────── 20:14 UTC
+40m EA  [████████░░░░░░████████████████░░░░░░░░░░░░░░░░░░]
+80m EA  [░░░░░░░░░░░░░░░░░░██████████████░░░░░░░░░░░░░░░░]
+
+EA   [25W]
+40m · FT8 · 1,870 km · 208°
+◑ OPENING SOON           48%
+Next: 20:14 UTC / 22:14  48%
+
+📻 Live DX spots
+VP8GEO  14.074  20m  FT8  de OE5TXF  3m
 ```
-
-### 4. Set an alarm
-
-Tap ⏰ on any watch card, or open the watch detail and tap **Set alarm** / **Export to calendar**. The .ics file works in Outlook, Gmail, and Apple Calendar, and your phone's alarm will fire at the correct **local time**.
 
 ---
 
-## Watches explained
+## Home screen
 
-A **watch** is a persistent monitor for a specific target station + band + mode combination.
+### Status bar
 
-| Field | Description |
-|-------|-------------|
-| **Target station** | Callsign prefix or DXCC entity (e.g. `VP8`, `JA`, `EA`) |
-| **Band** | HF band: 160m, 80m, 40m, 30m, 20m, 17m, 15m, 12m, 10m, 6m |
-| **Mode** | Operating mode: FT8, FT4, CW, SSB, JT65, MSK144 |
-| **Threshold** | Minimum reliability % for an alarm (default 60%) |
-| **Power** | Transmit power used for this watch (default: profile setting) |
+| Field | Meaning |
+|-------|---------|
+| **Kp** | Planetary K-index — geomagnetic disturbance (0–9). Green < 3, orange 3–4, red ≥ 5. |
+| **SFI** | Solar Flux Index — solar activity. Higher = better HF conditions. |
+| **G0–G5** | NOAA storm scale derived from Kp |
+| **0m ago** | Age of the NOAA data. Orange > 30 min, red > 2 hours. |
+| **↺** | Manual refresh button |
 
-### Watch statuses
+### Greyline countdown
+
+Shows time until next sunrise or sunset at your location. Turns orange inside 2 hours, green inside 15 minutes. The ⏰ button sets a browser notification 15 min before the greyline and downloads a `greyline.ics` calendar event.
+
+### Sporadic-E card
+
+Appears automatically when Es probability ≥ 15% (May–August in Northern Europe). Shows:
+
+- **HIGH / MODERATE / LOW** with percentage
+- Which bands to monitor (6m at ≥ 70%, 10m at ≥ 40%)
+- Specific frequencies: 50.313 MHz (6m FT8), 28.074 MHz (10m FT8)
+- Time until next diurnal peak (08–12 UTC or 15–19 UTC)
+
+### 24h timeline
+
+Horizontal bar per watch covering the next 24 hours in 15-minute blocks:
+
+| Colour | Reliability |
+|--------|------------|
+| 🟢 Green | ≥ 70% |
+| 🟡 Orange | 40–69% |
+| 🔴 Red | 10–39% |
+| ⬛ Grey | < 10% |
+| Amber vertical bands | Greyline periods at your TX location |
+
+### DX spots panel
+
+Shows up to 10 recent spots on your watched bands. Spots matching a watch entity are highlighted green. Shows: DX callsign, frequency (kHz), band, mode, spotter, age in minutes.
+
+---
+
+## Watches
+
+### Status labels
 
 | Status | Meaning |
 |--------|---------|
-| ● **GOOD WINDOW** | Reliability ≥ threshold — good time to operate |
-| ◑ **OPENING SOON** | Reliability approaching threshold (within ~75%) |
-| ○ **WAITING** | Below threshold — next good window calculated |
-| ✕ **CLOSED** | Reliability < 10% — band effectively closed for this path |
-| — **INACTIVE** | Watch manually deactivated |
+| **● GOOD WINDOW** | Reliability ≥ threshold — operate now |
+| **◑ OPENING SOON** | Reliability at 75–100% of threshold — get ready |
+| **○ WAITING** | Below threshold — next window calculated |
+| **✕ CLOSED** | Reliability < 10% — effectively closed |
 
-### The 24-hour timeline
+Sub-line behaviour:
+- `Next: 21:17 UTC / 23:17 · 71%` — a true window exists above threshold
+- `Best: 03:14 UTC / 05:14 · 38%` — band never reaches threshold; shows best available moment (dimmed text)
 
-The main screen shows a horizontal timeline covering the next 24 hours. Each watch has a coloured bar:
+### Watch detail
 
-- 🟢 **Green** ≥ 70% reliability
-- 🟡 **Orange** 40–69%
-- 🔴 **Red** 10–39%
-- ⬛ **Grey** < 10% (effectively closed)
-- **Amber vertical bands** = greyline periods at your TX location
+Tap a watch card to open the detail view. Shows:
+- Large reliability percentage with colour
+- Power penalty note ("At 100W this would be 58% — 14pt difference")
+- Next window box with UTC + local time, export to calendar
+- SFI / Kp / power / distance / bearing / grid reference table
+- **Live DX spots** matching this watch (from DX cluster, last 30 min)
+- ⏰ Set alarm · 📅 Export .ics · 🗺 Show path on map
 
-The timeline is calculated in 15-minute steps using your actual location and the target station's location.
+### Path map
+
+Tap "Show path on map" in the watch detail. Opens Leaflet.js map showing:
+- **Green solid line** — short path great circle
+- **Orange dashed line** — long path
+- TX marker (green) and DX entity marker (orange)
+- Greyline terminator (amber dashed line)
+- Short path bearing and distance, long path bearing and distance
+- Legend
+
+*Map requires internet connection (tiles from OpenStreetMap, Leaflet from CDN).*
 
 ---
 
@@ -122,390 +170,343 @@ The timeline is calculated in 15-minute steps using your actual location and the
 
 ### SFI — Solar Flux Index
 
-The Solar Flux Index measures the intensity of solar radiation at 10.7 cm wavelength. It is a proxy for the level of ionospheric ionisation.
+Measures solar radiation at 10.7 cm. Proxy for F2-layer ionisation.
 
-| SFI | Conditions |
-|-----|-----------|
-| < 70 | Poor — low bands only reliable at night |
-| 70–100 | Moderate — 20m open, 17m/15m marginal |
-| 100–130 | Good — 15m reliable, 12m/10m opening |
+| SFI | HF conditions |
+|-----|--------------|
+| < 70 | Poor — low bands only at night |
+| 70–100 | Moderate — 20m reliable, 17m/15m marginal |
+| 100–130 | Good — 15m reliable, 10m opening |
 | 130–150 | Very good — 10m reliably open |
-| > 150 | Excellent — all bands including 6m (F2) possible |
+| > 150 | Excellent — all bands including 6m F2 possible |
 
-**Source:** NOAA SWPC, measured daily. Updated once per day.  
-**Location dependence:** None — SFI is a global measurement of solar output.
+Source: NOAA SWPC, field `f10.7` in `observed-solar-cycle-indices.json`. Updated daily.
 
 ### Kp — Planetary K-index
 
-The Kp index measures geomagnetic disturbance caused by solar wind. It runs from 0 (calm) to 9 (extreme storm). The NOAA G-scale is derived from Kp.
+Measures geomagnetic disturbance (0–9). Global average — affects all HF paths.
 
-| Kp | G-scale | Effect on HF |
-|----|---------|-------------|
-| 0–2 | G0 | Undisturbed — full propagation |
-| 3 | G0/G1 | Minor disturbance — low bands slightly affected |
-| 4 | G1 | Minor storm — 80m/40m noticeably degraded |
-| 5 | G2 | Moderate storm — HF unreliable, especially low bands |
-| 6 | G3 | Strong storm — widespread HF disruption |
-| 7+ | G4/G5 | Severe/extreme — HF outages likely |
+| Kp | G-scale | Effect |
+|----|---------|--------|
+| 0–2 | G0 | Undisturbed |
+| 3 | G1 | 80m/40m slightly degraded |
+| 4 | G1–G2 | Moderate storm — 80m/40m noticeably worse |
+| 5 | G2 | HF unreliable, especially low bands |
+| 6 | G3 | Widespread disruption |
+| ≥ 7 | G4–G5 | HF outages |
 
-**Source:** NOAA SWPC, updated every minute.  
-**Location dependence:** None — Kp is a planetary-average index. It affects all HF paths equally (though polar paths are hit harder than equatorial ones — this is not modelled in the current version).
+Source: NOAA SWPC `planetary_k_index_1m.json`. Updated every minute.
 
 ### MUF — Maximum Usable Frequency
 
-The MUF is the highest frequency that can be reflected by the F2 layer for a given path. If your band frequency is above the MUF, the signal passes through the ionosphere and is lost to space.
-
-The app estimates MUF using:
+Highest frequency reflectable by the F2 layer for this path. Above the MUF = signal escapes to space = 0% reliability.
 
 ```
-foF2      = 2 + (SFI / 150) × 8        [critical F2 frequency in MHz]
-obliquity = 2.5 + min(2.5, distKm / 3000)  [geometry factor: 2.5 short → 5.0 long path]
+foF2      = 2 + (SFI / 150) × 8           [~2 MHz at SFI=0, ~10 MHz at SFI=150]
+obliquity = 2.5 + min(2.5, distKm / 3000)  [2.5 short → 5.0 long path]
 MUF       = foF2 × obliquity
 ```
 
-| SFI | foF2 | MUF (5,890 km path) |
-|-----|------|---------------------|
-| 70 | 5.7 MHz | 25.6 MHz |
-| 100 | 7.3 MHz | 32.7 MHz |
-| 142 | 9.6 MHz | 42.7 MHz |
-
-If your band frequency is:
-- **> MUF × 1.10** → reliability = 0% (above MUF)
-- **> MUF × 0.95** → reliability = 15% (marginal)
-- **≤ MUF × 0.95** → calculation continues
-
-**Accuracy note:** This is an empirical approximation, not a VOACAP simulation. It gives correct directional results (10m closed at low SFI, 20m open at SFI > 70) but should not be used as a precision tool.
+If band frequency > MUF × 1.10 → reliability = 0%  
+If band frequency > MUF × 0.95 → reliability = 15% (marginal)
 
 ### Path reliability
 
-The central output. A single number (0–100%) representing how reliable the path is likely to be **right now** for the configured band, mode, power and target.
+0–99%. Calculated at each evaluation step and for each 15-min block of the 24h timeline.
 
-**How it is calculated** (step by step):
+### Distance and bearing
 
-```
-1.  MUF check — if band freq > MUF: reliability = 0%, stop
-2.  Marginal check — if band freq > 0.95 × MUF: reliability = 15%, stop
-3.  Base = max(0.05, min(1.0, SFI / 150))
-4.  Base × Kp degradation factor (interpolated from matrix)
-5.  Base × D-layer factor at TX location
-6.  Base × D-layer factor at RX location
-7.  Base × Multi-hop factor (low bands, long paths)
-8.  Base × Power correction factor
-9.  Reliability = clamp(base, 0, 0.99)
-```
-
-Each factor is described in [How the calculations work](#how-the-calculations-work) below.
-
-### Greyline
-
-The greyline (terminator) is the boundary between day and night. As it sweeps across the earth twice daily, it creates a brief propagation enhancement on low bands:
-
-- The D-layer (which absorbs low-band signals during daylight) is absent
-- The F-layer is still fully ionised
-- Long-distance paths on 40m, 80m and 160m that are normally blocked become usable
-
-The app shows greyline windows when **both your location and the target location** are simultaneously in the greyline (±6° solar elevation). These moments are shown as amber bands on the timeline.
-
-**Calculation:** SunCalc.js, scanned in 5-minute steps over 48 hours. Accuracy: < 2 minutes for latitudes up to ±65°.
-
-### Bearing
-
-Two bearings are shown for each watch:
-
-- **Short path** — the direct great-circle route (e.g. 222° for Belgium → Falkland)
-- **Long path (LP)** — the opposite direction (222° + 180° = 42°), which goes the long way around the Earth
-
-On some paths and bands, the long path can be more reliable than the short path — particularly around greyline when one path is in daylight and the other is not. The app calculates both bearings but does not yet automatically determine which is better.
-
-### Distance
-
-Great-circle distance in km between your grid square centre and the DXCC entity reference point. Calculated using the Haversine formula. Used in the MUF calculation (obliquity factor) and to give you a sense of the path difficulty.
+Great-circle distance via Haversine formula from your grid square centre to the DXCC entity reference point. Two bearings shown: short path and long path (SP + 180°).
 
 ---
 
 ## How the calculations work
 
-### D-layer absorption
+All calculations are in `js/app.js` — `calcRel()` function.
 
-The D-layer (60–90 km altitude) exists only during daylight and absorbs HF signals — primarily on low bands. The higher the sun, the stronger the absorption.
-
-The app models D-layer absorption per band using a sigmoid (S-curve):
+### Step-by-step calculation
 
 ```
-t           = solar_elevation_degrees / halfElev
-absorption  = maxAbsorption × t² / (1 + t²)
-factor      = max(0.03, 1 - absorption)
+1. MUF gate:  freq > MUF×1.10 → 0%  |  freq > MUF×0.95 → 15%
+2. Base      = max(0.05, min(1.0, SFI / 150))
+3. Base     × Kp degradation factor (interpolated between integer Kp steps)
+4. Base     × D-layer factor at TX location (band-specific sigmoid)
+5. Base     × D-layer factor at RX location (band-specific sigmoid)
+6. Base     × Multi-hop factor (80m >6000 km, 160m >4000 km)
+7. Base     × F2 gradient factor (20m+ on paths > 3000 km only)
+8. Reliability = min(0.99, Base × power correction factor)
 ```
 
-Band-specific parameters (validated against known propagation behaviour):
+### D-layer absorption (steps 4 & 5)
 
-| Band | Max absorption | Half-elev | Factor at noon (75°) | Factor at night (0°) |
-|------|---------------|---------|---------------------|---------------------|
+Sigmoid curve — smooth transition from no absorption at night to maximum at high sun:
+
+```
+t          = solar_elevation / halfElev
+absorption = maxAbsorption × t² / (1 + t²)
+factor     = max(0.03, 1 − absorption)
+```
+
+| Band | Max absorption | Half-elev | Factor at noon | Night |
+|------|---------------|----------|---------------|-------|
 | 160m | 95% | 6° | 0.05 | 1.00 |
 | 80m | 90% | 10° | 0.10 | 1.00 |
 | 40m | 82% | 18° | 0.20 | 1.00 |
 | 30m | 35% | 35° | 0.65 | 1.00 |
 | 20m+ | 0% | — | 1.00 | 1.00 |
 
-**Key insight:** 20m and above are not significantly affected by D-layer absorption. An F2 path on 14 MHz works as well during the day as at night. Only low bands are D-layer-dependent.
+Applied at both TX and RX independently → partial greyline modelled correctly.
 
-The factor is applied **twice** — once for your TX location and once for the RX location. This correctly models the situation where one side is in daylight and the other is not (partial greyline — still some absorption).
+### F2 gradient factor (step 7)
+
+F2 propagation on 20m+ is most efficient when TX and RX are in **opposite** day/night states. Only applies to paths > 3000 km (trans-continental).
+
+- Short paths (<3000 km, e.g. JO20→EA at 1870 km): factor = 1.0 — F2 works at all hours
+- Long paths (>3000 km, e.g. JO20→W1 at 5890 km): peaks when one side is day, other is night
+
+```
+distWeight = min(1, max(0, (distKm − 3000) / 6000))
+norm(e)    = clamp(e / 20°, −1, +1)
+gradient   = |norm(txElev) − norm(rxElev)| / 2
+factor     = max(floor, floor + (1−floor)×gradient)
+floor      = 0.50 + 0.20×(1−distWeight)
+```
+
+**Result:** 20m to W1 peaks 22:00–06:00 UTC (EU night / US night). 20m to EA is flat (short path, works all day).
 
 ### Kp degradation matrix
 
-Geomagnetic storms affect low bands more severely than high bands. The app uses an empirically calibrated matrix:
+| Kp | 160m | 80m | 40m | 20m | 15m | 10m |
+|----|------|-----|-----|-----|-----|-----|
+| 0 | 100% | 100% | 100% | 100% | 100% | 100% |
+| 2 | 75% | 80% | 85% | 95% | 98% | 100% |
+| 4 | 25% | 35% | 50% | 65% | 75% | 82% |
+| 6 | 0% | 5% | 10% | 20% | 30% | 38% |
 
-| Kp | 160m | 80m | 40m | 30m | 20m | 15m | 10m |
-|----|------|-----|-----|-----|-----|-----|-----|
-| 0 | 100% | 100% | 100% | 100% | 100% | 100% | 100% |
-| 1 | 90% | 90% | 95% | 98% | 100% | 100% | 100% |
-| 2 | 75% | 80% | 85% | 90% | 95% | 98% | 100% |
-| 3 | 50% | 60% | 70% | 80% | 85% | 90% | 95% |
-| 4 | 25% | 35% | 50% | 60% | 65% | 75% | 82% |
-| 5 | 10% | 15% | 25% | 35% | 40% | 50% | 60% |
-| 6 | 0% | 5% | 10% | 15% | 20% | 30% | 38% |
-| 7 | 0% | 0% | 5% | 5% | 5% | 12% | 18% |
-| 8+ | 0% | 0% | 0% | 0% | 0% | 3% | 6% |
-
-Values between integer Kp steps are linearly interpolated. So Kp 1.7 gives a value between the Kp 1 and Kp 2 rows.
-
-**Status:** These values are empirically calibrated. They are consistent with NOAA G-scale descriptions but have not been formally validated against RSGB or IPS publications.
-
-### Multi-hop attenuation (low bands, long paths)
-
-On 80m and 160m, very long paths require multiple F2-layer reflections, each with ground-reflection losses. The app applies an exponential decay for paths beyond each band's practical maximum:
-
-```
-80m:  paths > 6,000 km → factor = max(0.05, exp(-0.18 × (dist - 6000) / 2000))
-160m: paths > 4,000 km → factor = max(0.05, exp(-0.18 × (dist - 4000) / 2000))
-```
-
-Example: VP8 (12,847 km) on 80m at night: this factor reduces reliability from ~79% to ~42%, which correctly reflects the practical difficulty of this path.
-
-### F2 ionospheric gradient factor (time-of-day variation)
-
-This is the factor that makes the app answer "**when** is the path open from my location".
-
-**The physics:** F2 propagation on 20m and above is most efficient when TX and RX are in *opposite* day/night states. One side energises the F2 layer with solar radiation while the other benefits from low noise and stable ionisation. This is why 20m from Belgium to the USA peaks around 22:00–06:00 UTC — Belgian evening/night, American afternoon/night.
-
-**The factor:**
-
-```
-distWeight = min(1, max(0, (distKm - 1500) / 6000))
-           = 0 for short paths, 1 for long paths
-
-norm(elev) = clamp(elev / 20, -1, +1)
-           = -1 deep night, 0 at terminator, +1 full daylight
-
-endGradient = |norm(txElev) - norm(rxElev)| / 2   [0..1]
-midPenalty  = max(0, norm(midElev))² × 0.2 × distWeight
-
-factor = floor + (1 - floor) × endGradient - midPenalty
-floor  = 0.4 + 0.2 × (1 - distWeight)
-```
-
-**Distance dependence:**
-
-| Path length | distWeight | Effect |
-|-------------|-----------|--------|
-| < 1500 km (e.g. EA/Spain) | 0 | No gradient — F2 works in full daylight |
-| 3000 km | 0.25 | Mild variation |
-| 5890 km (W1/USA) | 0.73 | Strong variation |
-| 9220 km (JA/Japan) | 1.00 | Maximum variation |
-
-**Practical results from JO20ev on 20m FT8:**
-
-| Target | Peak UTC | Min UTC | Reason |
-|--------|---------|---------|--------|
-| W1 North America | 22:00–06:00 | 10:00–18:00 | EU night / US night-afternoon boundary |
-| JA Japan | 16:00–22:00 | 06:00–12:00 | EU afternoon / Japan night |
-| EA Spain | Flat ~55% | — | Short path, F2 works all day |
-| VP8 Falkland 40m | 21:00–04:00 | 09:00–17:00 | Greyline + D-layer model (not F2 gradient) |
-
-**Only applied to 20m and above.** On 40m and lower, the D-layer model already provides the time-of-day variation. The F2 gradient returns 1.0 for those bands.
+Linear interpolation between integer steps. Source: empirically calibrated against NOAA G-scale descriptions.
 
 ### Power correction factor
 
-
-Transmit power affects the SNR margin at the receiving end. The correction is based on the dB difference from the 100W reference and the mode's SNR margin:
-
 ```
-dB_diff = 10 × log10(txPowerW / 100)
-factor  = max(0.1, min(1.2, 1 + dB_diff / mode_margin))
+dB_diff = 10 × log10(txPowerW / 100W)
+factor  = max(0.15, min(1.2, 1 + dB_diff / mode_margin))
 ```
 
-Mode SNR margins (dB above decoding threshold on a good path at 100W):
+| Mode | Margin (dB) | 25W factor | Notes |
+|------|------------|-----------|-------|
+| FT8 | 20 | 0.70 | Most tolerant — best for QRP DX |
+| JT65 | 22 | 0.73 | |
+| FT4 | 18 | 0.67 | |
+| CW | 13 | 0.54 | Operator-dependent |
+| SSB | 10 | 0.40 | 25W SSB is difficult but not impossible |
 
-| Mode | Margin | Notes |
-|------|--------|-------|
-| FT8 | 20 dB | Most tolerant — best choice for low-power DX |
-| FT4 | 18 dB | |
-| JT65 | 22 dB | |
-| CW | 13 dB | Operator-dependent |
-| SSB | 6 dB | Most sensitive to power reduction |
+### Sporadic-E probability model
 
-**Practical implication:** At 25W (Class C), FT8 gives about 67% of the 100W reliability on a marginal path, while SSB gives only 54%. This is why FT8 is so effective for low-power DX.
+```
+prob = seasonal × diurnal × latFactor
+
+seasonal  = ES_MONTHLY[month]       // May peak 0.55, June 0.88, July 1.00
+diurnal   = 1.00 (08-12 UTC)        // Morning peak
+            0.80 (15-19 UTC)        // Afternoon peak
+            0.35 (other daytime)
+            0.08 (night)
+latFactor = 1.00 (42-58°N)          // Es belt
+            0.65 (36-64°N)
+            0.30 (other)
+```
+
+Based on Bianchi/CCIR ionospheric data for Northern Europe.
 
 ---
 
-## Data sources
+## Features
 
-| Source | What it provides | Update rate | CORS | Notes |
-|--------|-----------------|-------------|------|-------|
-| [NOAA SWPC](https://www.swpc.noaa.gov) | Kp index, SFI, storm scales | 1 min (Kp), daily (SFI) | ✅ | Free, public domain |
-| [SunCalc.js](https://github.com/mourner/suncalc) | Solar/lunar positions, greyline | Client-side, no network | ✅ | BSD 2-Clause, local copy |
-| DXCC entities | Target station coordinates | Static (bundled) | ✅ | 26 entities, from cty.dat |
-| IMO meteor calendar | Shower dates and ZHR | Annual (bundled) | ✅ | International Meteor Organization |
+### Greyline alarm
 
-**Privacy:** Your location (grid square) never leaves your browser. All calculations are client-side. No analytics, no tracking, no account required.
+- Live countdown on home screen to next sunrise/sunset at your location
+- ⏰ button: sets browser notification 15 min before greyline
+- Downloads `greyline.ics` for import in your calendar app
+- Updates every minute
 
-**Offline:** The app works offline using cached NOAA data (up to 2 hours old). Greyline and solar calculations always work offline. The NOAA staleness is shown in the status bar.
+### Storm recovery alert
+
+- Tracks Kp trend across NOAA fetches
+- When Kp drops from ≥4 to <3: toast notification + browser notification
+- Lists which bands are recovering (e.g. "40m / 20m improving")
+- All watches automatically re-evaluated
+
+### Sporadic-E card
+
+- Shown automatically when probability ≥ 15%
+- Statistical model (month × time-of-day × latitude)
+- Specifies exact frequencies to monitor
+- Updates every 15 minutes
+
+### DX cluster spots
+
+- Fetches live spots from **dxwatch.com** (REST, CORS OK, all modes)
+- Fallback to **PSK Reporter** (digital modes, spots near your grid)
+- Spots matched to watches: same band + DX prefix = green highlighted
+- Shows in home screen panel (10 most recent on your watched bands)
+- Shows in watch detail (up to 5 matched spots with frequency, spotter, age)
+- Updates every 5 minutes
+
+### Path map (Leaflet.js)
+
+- Great-circle short path (green) and long path (orange dashed)
+- Greyline terminator line (amber dashed)
+- TX and RX markers with entity labels
+- SP and LP bearing + distance
+- Leaflet lazy-loaded on first use (requires internet)
 
 ---
 
 ## Settings reference
 
-### Data Sources
+### 📡 Data Sources
 
-Shows the live status of each NOAA endpoint. The **🔌 Test API** button:
-1. Tests each endpoint independently
-2. Shows response time (ms) and the received value
-3. Shows the exact error message if an endpoint fails
-4. Updates live data if the test succeeds
+**Test API button:** tests each NOAA endpoint independently. Shows:
+- HTTP response time (ms)
+- Received value (Kp, SFI, G-scale)
+- Exact error message if endpoint fails
 
-**Advanced configuration:**
+Storm scales are derived from Kp if the NOAA scales endpoint fails (common CORS issue on mobile networks).
+
+Advanced config (tap "⚙ Advanced configuration"):
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Timeout | 10 sec | Per-request network timeout |
-| Poll interval | 5 min | How often NOAA data is refreshed |
-| Fallback SFI | 70 | Used when NOAA is unreachable (conservative) |
-| Fallback Kp | 0 | Used when NOAA is unreachable (calm = optimistic) |
+| Poll interval | 5 min | NOAA data refresh frequency |
+| Fallback SFI | 70 | Used when NOAA unreachable (conservative) |
+| Fallback Kp | 0 | Used when NOAA unreachable (calm = optimistic) |
 
-### Power & License
+### ⚡ Power & License
 
-| Setting | Description |
-|---------|-------------|
-| **Class C** | Belgian/CEPT novice — max 25W. Clicking this sets power to 25W. |
-| **Class B** | Intermediate license — max 100W. |
-| **Class A** | Full HAREC license — max 1500W. |
-| **Transmit power** | Your actual operating power. Affects reliability for all watches. |
-| **QRP mode** | Forces power to 5W. Useful for POTA/SOTA portable operations. |
+| | Class C | Class B | Class A |
+|-|---------|---------|---------|
+| **Max power** | 25W | 100W | 1500W |
+| **License** | Belgian HAREC candidate / CEPT novice | Intermediate | Full HAREC |
 
-The power badge on each watch card shows the power used for that watch's calculation. If you change the power, all watch reliabilities are recalculated immediately.
+Clicking a class button sets power to the class maximum. The power badge on each watch card shows the power used for that calculation. Change power → all watches recalculate immediately.
 
-### Location
+**QRP mode:** forces power to 5W. Toggle off restores class default.
 
-Your grid square determines:
-- Solar elevation at your TX site (for D-layer and greyline calculations)
-- Distance and bearing to each watch target
-- Greyline marking on the timeline
+### 📍 Location
 
-A 4-character grid (JO20) is accurate to ±70 km, which causes at most 2–3 minutes of greyline timing error. A 6-character grid (JO20ev) is accurate to ±5 km.
+Enter a 6-character grid square (JO20ev) for best accuracy. 4-character (JO20) is acceptable.
+
+Used for: D-layer solar elevation, greyline timing, path distances and bearings, Es latitude factor, DX cluster spot proximity (PSK Reporter).
+
+### 🎨 Display
+
+Language: English / Nederlands. Switches status labels, UI text and settings screen immediately.
+
+Light theme: inverts colour scheme. All status colours adjusted for contrast on light background.
 
 ---
 
 ## Calendar export & alarms
 
-### .ics file format
+### .ics format
 
-When you export a watch window to calendar, the generated .ics file uses:
+Calendar events use `DTSTART;TZID=Europe/Brussels:...` so phone alarms fire at the correct **local time** regardless of summer/winter time. The VTIMEZONE component is embedded for compatibility with Outlook desktop.
 
-```
-DTSTART;TZID=Europe/Brussels:20260507T231700
-DTEND;TZID=Europe/Brussels:20260508T001700
-SUMMARY:VP8 Falkland — 40m CW — 21:17 UTC / 23:17 local
-BEGIN:VALARM
-TRIGGER:-PT15M    ← alarm fires 15 min before local start time
-END:VALARM
-```
+SUMMARY shows both times: `VP8 40m CW — 21:17 UTC / 23:17 local`  
+VALARM fires 15 minutes before the window opens.
 
-The timezone is automatically detected from your browser (`Intl.DateTimeFormat().resolvedOptions().timeZone`). The embedded `VTIMEZONE` component ensures the alarm fires at the correct local time regardless of summer/winter time transitions.
+### Greyline .ics
 
-Both UTC and local time are shown in the SUMMARY line, so the calendar event is unambiguous even if you share it with someone in a different time zone.
+Downloaded when you tap ⏰ on the greyline countdown. Start time = 15 min before greyline, duration = 45 min (typical effective window). Includes VALARM.
 
-### Compatibility tested
+### Compatibility
 
-| Client | Import method | Alarm behaviour |
-|--------|--------------|----------------|
-| Google Calendar | Direct .ics import or link | ✅ Fires at local time |
-| Apple Calendar (iOS/macOS) | Direct .ics import | ✅ Fires at local time |
-| Outlook (desktop) | Direct .ics import | ✅ Fires at local time |
-| Outlook (web) | Direct .ics import | ✅ Fires at local time |
+| Client | Import | Alarm |
+|--------|--------|-------|
+| Google Calendar | ✅ | Local time |
+| Apple Calendar iOS/macOS | ✅ | Local time |
+| Outlook desktop | ✅ | Local time |
+| Outlook web | ✅ | Local time |
 
 ### Browser notifications
 
-If you grant notification permission, the app can alert you directly via the browser (or home screen if installed as PWA). The alarm fires `advance_minutes` (default: 15) before the window opens. Notifications require:
-- Android: Chrome or any Chromium browser
-- iOS: Safari, app must be installed via "Add to Home Screen", iOS ≥ 16.4
+Requires permission. On iOS, the app must be installed via "Add to Home Screen" (iOS ≥ 16.4). On Android, any Chromium browser works.
 
 ---
 
-## Technical architecture
+## Architecture
 
 ```
-propagation-watch/
-├── index.html            ← Single-page app
-├── manifest.json         ← PWA manifest
-├── sw.js                 ← Service worker (offline support)
+PropagationWatch/
+├── index.html        189 lines   HTML structure only — zero inline CSS or JS
 ├── css/
-│   ├── tokens.css        ← All design tokens (colours, spacing, typography)
-│   ├── components.css    ← UI components (BEM)
-│   └── ...               ← Layout, timeline, setup
+│   └── style.css     268 lines   All styles: tokens, layout, components, features
 ├── js/
-│   ├── app.js            ← Boot, routing, orchestration
-│   ├── state.js          ← Central app state (single source of truth)
-│   ├── propagation.js    ← All reliability calculations (pure functions)
-│   ├── greyline.js       ← SunCalc.js wrappers (solar/lunar positions)
-│   ├── watches.js        ← Watch CRUD, state machine, alarm pipeline
-│   ├── noaa.js           ← NOAA API client, caching, test function
-│   ├── timeline.js       ← SVG timeline rendering (96 blocks × watch)
-│   ├── settings.js       ← Settings screen and API test panel
-│   ├── setup.js          ← Setup wizard
-│   ├── export.js         ← .ics generation (RFC 5545, with VTIMEZONE)
-│   ├── ui.js             ← showScreen(), showToast()
-│   ├── storage.js        ← localStorage abstraction
-│   ├── utils.js          ← Haversine, Maidenhead, time formatting
-│   └── i18n.js           ← Translations (EN, NL)
+│   └── app.js       1553 lines   All logic: state, calculations, rendering, APIs
 ├── lib/
-│   └── suncalc.js        ← SunCalc v1.9 (local copy, no CDN)
-└── data/
-    ├── dxcc-entities.json   ← 26 DXCC entities with coordinates
-    ├── band-profiles.json   ← Band properties and Class C restrictions
-    └── meteor-showers.json  ← IMO annual meteor shower calendar
+│   └── suncalc.js    96 lines    Astronomical calculations (BSD-2, local copy)
+└── sw.js             20 lines    Service worker — offline cache
 ```
 
 **Technology choices:**
-- Vanilla JS (ES6 modules) — no framework, no build step
-- GitHub Pages — free HTTPS hosting, automatic deployment via GitHub Actions
-- localStorage — all user data stored locally, no server, no account
-- SunCalc.js — client-side astronomical calculations, no API needed
+- Vanilla JS — no framework, no build step, no bundler
+- No ES modules — single script file, no timing/circular/SW-cache issues  
+- GitHub Pages — free HTTPS hosting
+- localStorage — all data stored locally, no server, no account
+- SunCalc.js local copy — no CDN dependency for core calculations
+- Leaflet.js — lazy-loaded CDN on first map use only
+
+---
+
+## Data sources
+
+| Source | Data | Update rate | CORS | Licence |
+|--------|------|------------|------|---------|
+| NOAA SWPC | Kp (1-min), SFI (daily) | 1 min / daily | ✅ | Public domain |
+| SunCalc.js | Solar/lunar positions, greyline | Client-side | ✅ | BSD-2 |
+| dxwatch.com | Live DX cluster spots | 5 min | ✅ | Free |
+| PSK Reporter | Digital mode spots (FT8/FT4) | 5 min | ✅ | Free |
+| DXCC entities | 26 entity coordinates | Static | ✅ | cty.dat derived |
+
+**Offline behaviour:** Kp/SFI cached for up to 2 hours (with staleness indicator). Greyline and solar calculations always work offline. DX spots and map tiles require internet.
 
 ---
 
 ## Limitations and honesty
 
-This app is a **practical planning tool**, not a scientific propagation prediction system. The reliability scores are directional estimates, not exact probabilities. Here is what the model does and does not capture:
+| Modelled | Not modelled |
+|---------|-------------|
+| SFI → MUF estimation | Antenna gain and pattern |
+| Kp degradation per band | Receiver noise figure |
+| D-layer absorption (sigmoid) | Polar path enhancement/absorption |
+| F2 gradient (trans-continental) | Chordal hop propagation |
+| Multi-hop loss (80m/160m) | Grey-line exact F-layer state |
+| Power + mode SNR correction | Year-to-year ionospheric variation |
+| Sporadic-E probability (statistical) | Real-time Es MUF measurement |
+| DX cluster live spots | Actual path loss measurement |
 
-| What is modelled | What is NOT modelled |
-|-----------------|---------------------|
-| SFI effect on MUF | Antenna gain and pattern |
-| Kp effect per band | Receiver noise figure |
-| D-layer absorption (day/night) | Geomagnetic latitude (polar vs equatorial paths) |
-| Multi-hop loss on low bands | Sporadic-E (no prediction, real-time detection only) |
-| Power and mode SNR | Auroral propagation |
-| Greyline enhancement | Grey-line exact F-layer state |
-| Path distance (MUF obliquity) | Time-of-year ionospheric variability |
+The **MUF formula** (`foF2 × obliquity`) is a simplification. VOACAP uses far more sophisticated models. For paths shown as "marginal" in this app, VOACAP may show either "reliable" or "closed" — uncertainty margin ±20–30%.
 
-**The Kp degradation matrix** is empirically calibrated and consistent with NOAA G-scale descriptions. It has not been formally validated against published RSGB or IPS ionospheric storm data.
+The **Kp degradation matrix** is empirically calibrated against NOAA G-scale descriptions. Not formally validated against RSGB or IPS publications.
 
-**The MUF formula** (`foF2 × obliquity`) is a simplification. VOACAP uses far more sophisticated models. For paths that show "marginal" in this app, VOACAP may show either "reliable" or "closed" — the margin of uncertainty is 20–30%.
-
-When in doubt, cross-check with:
+For precision planning, cross-check with:
 - [NOAA SWPC](https://www.swpc.noaa.gov) — live Kp and SFI
-- [DXAtlas](http://www.dxatlas.com) — MUF maps
 - [VOACAP Online](https://www.voacap.com) — full circuit analysis
+- [DXAtlas](http://www.dxatlas.com) — MUF maps
 - [PSK Reporter](https://www.pskreporter.info) — actual live spots
+
+---
+
+## Planned extensions
+
+| Feature | Description | Priority |
+|---------|-------------|----------|
+| Contest calendar | Major contests (CQWW, PACC, IARU) marked on timeline with active bands | Medium |
+| Logbook link | ADIF import to track worked DXCC, mark watches as worked | Medium |
+| Reciprocal path | Show reliability for the RX → TX direction too | Medium |
+| Meteor scatter | MSK144 windows during meteor showers (Perseid, Leonid) | Low |
+| EME / moon window | Lunar elevation for 2m EME planning | Low |
+| 6m F2 detection | Real-time F2 opening detection via 50 MHz spots | Low |
 
 ---
 
@@ -513,11 +514,12 @@ When in doubt, cross-check with:
 
 MIT License — open source, no ads, no tracking, no account required.
 
-SunCalc.js: BSD 2-Clause — © Vladimir Agafonkin  
-DXCC entity data: derived from cty.dat (free for non-commercial use)  
-IMO meteor shower calendar: public scientific data
+- **SunCalc.js** — BSD 2-Clause © Vladimir Agafonkin
+- **Leaflet.js** — BSD 2-Clause © Vladimir Agafonkin et al.
+- **DXCC data** — derived from cty.dat, free for non-commercial use
+- **DX spots** — courtesy dxwatch.com and PSK Reporter
 
 ---
 
 *Propagation Watch · ON3VZ/JO20ev · WLD/ON6WL*  
-*Built with vanilla JS, SunCalc.js, and NOAA SWPC data*
+*Hoboken (Antwerpen) · IC-7300 MkII + IC-2730E · FTM-510DE*
