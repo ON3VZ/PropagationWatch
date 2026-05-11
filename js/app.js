@@ -65,6 +65,14 @@ function showScreen(id) {
   });
 }
 function goHome()     { showScreen('home');     renderHome(); }
+function goQuickCheck() {
+  // Quick check: same setup flow but step 2 shows result WITHOUT saving
+  _quickCheckMode = true;
+  showScreen('setup');
+  renderSetup();
+}
+let _quickCheckMode = false;
+
 function goSettings() {
   showScreen('settings');
   syncSettingsUI();
@@ -264,8 +272,15 @@ function evalWatch(w) {
   const r = calcRel(w.band, w.mode, w.dist, u.lat, u.lon, w.lat, w.lon, w.pw||u.txPowerW);
   w.rel    = r.rel;
   w.base   = r.base;
-  w.status = relToStatus(r.rel, (w.threshold||60)/100);
   w.nextWin = findNext(w);
+
+  // Status: SOON only valid if band actually reaches threshold
+  // If nextWin.isWindow=false (never reaches threshold), cap at WAIT
+  let status = relToStatus(r.rel, (w.threshold||60)/100);
+  if (status === 'SOON' && w.nextWin && !w.nextWin.isWindow) {
+    status = 'WAIT';  // Approaching but never opens → WAITING
+  }
+  w.status = status;
 }
 function relToStatus(r, thr) {
   if (r >= thr)         return 'GOOD';
@@ -324,6 +339,66 @@ function gridToLL(g) {
 }
 
 // ── Render home ──
+
+function showQuickResult(w) {
+  // Show a temporary detail view for quick check — no alarm, no save
+  const pct = Math.round((w.rel||0)*100);
+  const col = {GOOD:'var(--good)',APPROACHING:'var(--good)',WAITING:'var(--warn)',POOR:'var(--bad)'}[w.status]||'var(--bdr)';
+  const lbl = statusLabel(w.status);
+  const nw  = w.nextWin;
+
+  let nwHtml = '';
+  if (nw) {
+    const t    = new Date(nw.time);
+    const nwPct = Math.round(nw.rel*100);
+    const nwCol = nwPct>=60?'var(--good)':nwPct>=30?'var(--warn)':'var(--bad)';
+    const nwBg  = nwPct>=60?'var(--good-bg)':nwPct>=30?'var(--warn-bg)':'var(--bad-bg)';
+    nwHtml = `<div style="background:${nwBg};border:1px solid ${nwCol};border-radius:8px;padding:14px;margin:12px 0">
+      <div style="font-size:11px;color:var(--tx2);margin-bottom:4px">
+        ${nw.isWindow?'Next window':'Best moment (threshold not reached)'}
+      </div>
+      <div style="font-size:26px;font-weight:700;font-family:var(--mono);color:${nwCol}">${fmtUTC(t)}</div>
+      <div style="font-size:12px;font-family:var(--mono);color:var(--tx2);margin-top:2px">${fmtLocal(t)} local · ${nwPct}%</div>
+    </div>`;
+  }
+
+  document.getElementById('det-title').textContent = `Quick check — ${w.label} ${w.band} ${w.mode}`;
+  document.getElementById('det-body').innerHTML = `
+    <div style="background:var(--warn-bg);border:1px solid var(--warn);border-radius:8px;
+                padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--warn-tx)">
+      ⚡ This is a quick check — result not saved as a watch.
+      <button style="float:right;background:none;border:none;color:var(--warn-tx);
+                     cursor:pointer;font-size:12px;font-weight:600"
+              onclick="saveAsWatch()">Save as watch →</button>
+    </div>
+    <div style="font-size:52px;font-weight:700;font-family:var(--mono);color:${col}">${pct}%</div>
+    <div style="font-size:12px;color:var(--tx2);margin-top:4px;margin-bottom:4px">
+      ${lbl} · ${w.band} ${w.mode} · ${(w.pw||S.user.txPowerW||100)}W
+    </div>
+    <div style="font-size:12px;color:var(--tx2);margin-bottom:12px">
+      ${Number(w.dist).toLocaleString()} km · ${w.az}° · SFI ${S.prop.sfi||70} · Kp ${(S.prop.kp||0).toFixed(1)}
+    </div>
+    ${nwHtml}
+    <button class="btn btn-pri" onclick="saveAsWatch()" style="margin-top:8px">💾 Save as watch</button>
+    <button class="btn btn-sec" onclick="goHome()" style="margin-top:4px">← Back</button>`;
+
+  // Store temp watch for potential save
+  window._qcWatch = w;
+  showScreen('detail');
+}
+
+function saveAsWatch() {
+  const w = window._qcWatch;
+  if (!w) return;
+  w.id = crypto.randomUUID();
+  S.watches.push(w);
+  saveWatches();
+  S.user.configured = true;
+  saveUser();
+  toast(T('watchAdded')+': '+w.label+' '+w.band+' '+w.mode,'ok');
+  goHome();
+}
+
 function renderHome() {
   updateStatusBar();
   // Greyline countdown
@@ -566,9 +641,12 @@ const SUGG=[
 ];
 let _selTarget = null, _setupStep = 1;
 
-function renderSetup() {
-  _setupStep = S.user.configured ? 2 : 1;
-  _selTarget = null;
+let _quickCheck = false;
+
+function renderSetup(quickCheck) {
+  _quickCheck = !!quickCheck;
+  _setupStep  = S.user.configured ? 2 : 1;
+  _selTarget  = null;
   renderSetupStep();
 }
 
@@ -656,7 +734,8 @@ function renderStep2(el) {
       <input type="range" min="10" max="90" step="5" value="60" style="width:100%"
              oninput="document.getElementById('thr-lbl').textContent=this.value+'%'"/>
     </div>
-    <button class="btn btn-pri" onclick="createWatch2()">Create watch →</button>
+    <button class="btn btn-pri" id="setup-main-btn"
+  onclick="createWatch2()">${_quickCheck ? '🔍 Calculate' : 'Create watch →'}</button>
     <button class="setup-skip" onclick="goHome()">Cancel</button>`;
 
   // Suggestion buttons
@@ -745,11 +824,28 @@ function createWatch2() {
     rel:0, base:0, status:'WAIT', nextWin:null,
   };
   evalWatch(w);
+
+  if (_quickCheck) {
+    // Quick check: show result without saving
+    _lastQuickWatch = {...w};
+    showQuickResult(w);
+    return;
+  }
+
+  if (_quickCheckMode) {
+    _quickCheckMode = false;
+    // Show result without saving — redirect to detail view
+    w.id = 'quickcheck-temp';
+    evalWatch(w);
+    showQuickResult(w);
+    return;
+  }
+
   S.watches.push(w);
   saveWatches();
   S.user.configured = true;
   saveUser();
-  toast('Watch added: '+w.label+' '+band+' '+mode,'ok');
+  toast(T('watchAdded')+': '+w.label+' '+band+' '+mode,'ok');
   goHome();
 }
 
@@ -1073,6 +1169,56 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 
+
+/* Show quick check result — no watch saved */
+function showQuickResult(w) {
+  const pct  = Math.round((w.rel||0)*100);
+  const col  = pct>=60?'var(--good)':pct>=30?'var(--warn)':'var(--bad)';
+  const lbl  = pct>=60?T('good'):pct>=30?T('soon'):T('poor');
+  const nw   = w.nextWin;
+  const pw   = w.pw || S.user.txPowerW || 100;
+
+  let winHtml = '';
+  if (nw) {
+    const ts = fmtUTC(new Date(nw.time)) + ' / ' + fmtLocal(new Date(nw.time));
+    const nr = Math.round(nw.rel*100);
+    winHtml = nw.isWindow
+      ? `<div class="qr-win">Next window: <b>${ts}</b> · ${nr}%</div>`
+      : `<div class="qr-win" style="color:var(--tx3)">Best moment: <b>${ts}</b> · ${nr}% (below ${w.threshold||60}% threshold)</div>`;
+  }
+
+  const el = document.getElementById('setup-body');
+  el.innerHTML = `
+    <div style="text-align:center;padding:8px 0 16px">
+      <div style="font-size:64px;font-weight:700;font-family:var(--mono);color:${col}">${pct}%</div>
+      <div style="font-size:15px;font-weight:600;color:${col};margin-top:4px">${lbl}</div>
+      <div style="font-size:12px;color:var(--tx2);margin-top:4px">${w.label} · ${w.band} · ${w.mode} · ${pw}W</div>
+    </div>
+    <div class="card" style="margin:0 0 12px">
+      <div style="font-size:13px;color:var(--tx2);margin-bottom:4px">
+        ${Number(w.dist).toLocaleString()} km · ${w.az}° SP · ${w.azlp}° LP
+      </div>
+      ${winHtml}
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button class="btn btn-pri" style="margin:0" onclick="saveAsWatch()">💾 Save as watch</button>
+      <button class="btn btn-sec" style="margin:0" onclick="goHome()">Close</button>
+    </div>
+    <button class="btn btn-sec" onclick="goQuickCheck()" style="font-size:13px">← Check another</button>`;
+}
+
+// Save the last quick-check result as a real watch
+let _lastQuickWatch = null;
+function saveAsWatch() {
+  if (!_lastQuickWatch) return;
+  const w = _lastQuickWatch;
+  S.watches.push(w);
+  saveWatches();
+  S.user.configured = true;
+  saveUser();
+  toast('Watch saved: '+w.label+' '+w.band+' '+w.mode,'ok');
+  goHome();
+}
 
 /* ════════════════════════════════════════════════════════════════
    FEATURE 1: Sporadic-E Detection
