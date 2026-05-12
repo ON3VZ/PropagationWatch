@@ -1868,54 +1868,87 @@ function drawTerminator(map) {
     const D2R  = Math.PI / 180;
     const R2D  = 180 / Math.PI;
 
-    // Solar declination
+    // Solar declination (accurate ±0.5°)
     const jd   = now / 86400000 + 2440587.5;
     const n    = jd - 2451545.0;
     const L    = (280.46 + 0.9856474 * n) % 360;
     const g    = ((357.528 + 0.9856003 * n) % 360) * D2R;
     const lam  = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2*g)) * D2R;
     const decl = Math.asin(Math.sin(23.439 * D2R) * Math.sin(lam));
-
-    const utcH   = now.getUTCHours() + now.getUTCMinutes()/60;
+    const utcH = now.getUTCHours() + now.getUTCMinutes()/60;
     const sunLon = -(utcH - 12) * 15;
 
-    // Terminator points
+    // Terminator: lat where solar elevation = 0 for each longitude
     const term = [];
-    for (let lon = -180; lon <= 180; lon += 3) {
-      const ha = (lon - sunLon) * D2R;
+    for (let lon = -180; lon <= 180; lon += 2) {
+      const ha  = (lon - sunLon) * D2R;
       if (Math.abs(decl) < 0.001) { term.push([0, lon]); continue; }
       const lat = Math.atan(-Math.cos(ha) / Math.tan(decl)) * R2D;
       term.push([Math.max(-85, Math.min(85, lat)), lon]);
     }
 
-    // Night-side rectangles (avoids antimeridian polygon issues in Leaflet)
-    // Sample a grid and shade cells that are in night
-    for (let lon = -180; lon < 180; lon += 6) {
-      for (let lat = -84; lat < 84; lat += 6) {
-        const elev = SunCalc.getPosition(now, lat + 3, lon + 3).altitude * R2D;
-        if (elev < -6) {
-          L.rectangle([[lat, lon],[lat+6, lon+6]], {
-            color: 'none', fillColor: '#000820', fillOpacity: 0.30,
-            interactive: false,
-          }).addTo(map);
-        }
-      }
-    }
+    // ── Night-side overlay via Leaflet SVG overlay (single element, fast) ──
+    // Build an SVG polygon on a custom Leaflet layer
+    const nightLayer = L.svgOverlay(
+      (() => {
+        // Create SVG with a night polygon
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        return svg;
+      })(),
+      [[-90, -180], [90, 180]],
+      { opacity: 1, interactive: false }
+    );
 
-    // Greyline: the terminator line itself + ±6° zone
-    [
-      { offset: -6, weight: 0.7, opacity: 0.5, dash: '3,5' },
-      { offset:  0, weight: 2.5, opacity: 0.9, dash: null  },
-      { offset:  6, weight: 0.7, opacity: 0.5, dash: '3,5' },
-    ].forEach(({ offset, weight, opacity, dash }) => {
-      const pts = term.map(([lat, lon]) => [
-        Math.max(-85, Math.min(85, lat + offset)), lon
-      ]);
-      L.polyline(pts, {
-        color: '#EF9F27', weight, opacity, dashArray: dash,
-        smoothFactor: 1, interactive: false,
-      }).addTo(map);
+    // Fallback: use a custom Leaflet layer that draws on the map canvas
+    // The simplest cross-browser approach: imageOverlay with a generated canvas
+    const canvas = document.createElement('canvas');
+    canvas.width  = 720;
+    canvas.height = 360;
+    const ctx = canvas.getContext('2d');
+
+    // Fill night side
+    ctx.fillStyle = 'rgba(0,8,32,0.40)';
+    // Build night polygon in pixel space (720×360 = 2px/degree)
+    ctx.beginPath();
+    const pole = decl > 0 ? 360 : 0;  // bottom (south) or top (north) in pixel space
+    // Start from left edge at terminator latitude
+    ctx.moveTo(0, (90 - term[0][0]) * 2);
+    term.forEach(([lat, lon]) => {
+      const px = (lon + 180) * 2;
+      const py = (90 - lat) * 2;
+      ctx.lineTo(px, py);
     });
+    // Close through the winter pole
+    if (decl > 0) {
+      // Northern summer: night around south pole
+      ctx.lineTo(720, 360); ctx.lineTo(0, 360);
+    } else {
+      // Northern winter: night around north pole
+      ctx.lineTo(720, 0); ctx.lineTo(0, 0);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // Greyline bands (±6°) — draw as stripes
+    [-6, 0, 6].forEach((offset, i) => {
+      ctx.strokeStyle = i === 1 ? 'rgba(239,159,39,0.9)' : 'rgba(239,159,39,0.4)';
+      ctx.lineWidth   = i === 1 ? 3 : 1;
+      if (i !== 1) ctx.setLineDash([4, 6]);
+      else ctx.setLineDash([]);
+      ctx.beginPath();
+      term.forEach(([lat, lon], idx) => {
+        const px = (lon + 180) * 2;
+        const py = (90 - Math.max(-85, Math.min(85, lat + offset))) * 2;
+        idx === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+    });
+
+    // Add as image overlay
+    L.imageOverlay(canvas.toDataURL(), [[-90, -180], [90, 180]], {
+      opacity: 1, interactive: false, zIndex: 200,
+    }).addTo(map);
 
   } catch(e) {
     console.warn('drawTerminator error:', e.message);
