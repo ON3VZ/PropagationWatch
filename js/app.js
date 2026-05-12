@@ -757,6 +757,7 @@ function renderSetup(quickCheck) {
   _quickCheck = !!quickCheck;
   _setupStep  = S.user.configured ? 2 : 1;
   _selTarget  = null;
+  _openGroup  = null;  // reset region selector each time
   renderSetupStep();
 }
 
@@ -848,24 +849,8 @@ function renderStep2(el) {
   onclick="createWatch2()">${_quickCheck ? '🔍 Calculate' : 'Create watch →'}</button>
     <button class="setup-skip" onclick="goHome()">Cancel</button>`;
 
-  // Suggestion buttons
-  const grid = document.getElementById('sugg-grid');
-  SUGG.forEach(s => {
-    const btn = document.createElement('button');
-    btn.className='sugg-btn';
-    const sDist = S.user.lat ? haversine(S.user.lat,S.user.lon,s.lat,s.lon) : null;
-    const sAz   = S.user.lat ? bearing(S.user.lat,S.user.lon,s.lat,s.lon) : null;
-    const sInfo = sDist ? sDist.toLocaleString()+' km · '+sAz+'°' : s.grid;
-    btn.innerHTML=`<div class="sugg-pre">${s.entity}</div><div class="sugg-name">${s.name}</div><div class="sugg-dist">${sInfo}</div>`;
-    btn.onclick=()=>{
-      _selTarget={...s, distNum:sDist, azNum:sAz};
-      document.getElementById('s-dx').value=s.entity;
-      document.getElementById('dx-hint').textContent=s.name+' · '+s.grid+(sDist?' · '+sDist.toLocaleString()+' km · '+sAz+'°':'');
-      grid.querySelectorAll('.sugg-btn').forEach(b=>b.classList.remove('sel'));
-      btn.classList.add('sel');
-    };
-    grid.appendChild(btn);
-  });
+  // Use hierarchical region selector (buildRegionSelector defined at module level)
+  buildRegionSelector(document.getElementById('sugg-grid'));
 }
 
 const DXCC_SIMPLE = {
@@ -1245,8 +1230,10 @@ async function doTestAPI() {
 function renderAPIEndpoints() {
   const el=document.getElementById('api-endpoints');
   if(!el) return;
-  const labels={kp:'Kp index',sfi:'Solar Flux Index',scales:'Storm scales',dx:'DX Cluster (dxwatch.com)'};
-  el.innerHTML=Object.entries(apiSt).map(([k,st])=>{
+  // Order matters: NOAA first, DX second
+  const labels={kp:'Kp index',sfi:'Solar Flux Index',scales:'Storm scales (G-scale)',dx:'DX Cluster (dxwatch.com)'};
+  const order = ['kp','sfi','scales','dx'];
+  el.innerHTML=order.map(k=>{ const st=apiSt[k];
     const icon=st.ok===true?'✅':st.ok===false?'❌':'○';
     const col=st.ok===true?'var(--good-tx)':st.ok===false?'var(--bad-tx)':'var(--tx2)';
     const val=st.val!=null?` <b>${typeof st.val==='number'?st.val.toFixed(k==='kp'?2:0):st.val}</b>`:'';
@@ -1762,104 +1749,67 @@ function greatCirclePoints(lat1, lon1, lat2, lon2, n, longPath) {
 // Draw approximate greyline terminator as night-side overlay
 function drawTerminator(map) {
   if (!window.SunCalc) return;
-  const now = new Date();
-  const D2R = Math.PI / 180;
-  const R2D = 180 / Math.PI;
+  const now   = new Date();
+  const D2R   = Math.PI / 180;
+  const R2D   = 180 / Math.PI;
 
-  // Exact mathematical terminator using solar declination and hour angle
-  // At the terminator: sin(elev) = 0
-  // sin(lat)*sin(decl) + cos(lat)*cos(decl)*cos(ha) = 0
-  // → lat = atan(-cos(ha) / tan(decl))  [for given ha at longitude lon]
-
-  // Get solar position at Greenwich to derive declination
-  const sunGMT = SunCalc.getPosition(now, 0, 0);
-  // Approximate declination from altitude at noon meridian
-  // Better: use the actual solar parameters
+  // Solar declination via Julian date (accurate ±0.5°)
   const jd    = now / 86400000 + 2440587.5;
   const n     = jd - 2451545.0;
   const L     = (280.46 + 0.9856474 * n) % 360;
-  const g     = (357.528 + 0.9856003 * n) % 360 * D2R;
+  const g     = ((357.528 + 0.9856003 * n) % 360) * D2R;
   const lam   = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2*g)) * D2R;
-  const eps   = 23.439 * D2R;
-  const decl  = Math.asin(Math.sin(eps) * Math.sin(lam)); // solar declination
+  const decl  = Math.asin(Math.sin(23.439 * D2R) * Math.sin(lam)); // radians
 
-  // Solar noon longitude (sun is directly overhead at this longitude)
-  const utcH  = now.getUTCHours() + now.getUTCMinutes()/60 + now.getUTCSeconds()/3600;
+  // Sun's sub-solar longitude (where sun is directly overhead)
+  const utcH   = now.getUTCHours() + now.getUTCMinutes()/60 + now.getUTCSeconds()/3600;
   const sunLon = -(utcH - 12) * 15;  // degrees
 
-  // Build terminator line and night polygon
-  const termLine  = [];
-  const nightTop  = [];  // northern terminator boundary
-  const nightBot  = [];  // southern terminator boundary
-
+  // Build terminator: for each longitude, lat where solar elevation = 0
+  // Formula: tan(decl) + tan(lat)*cos(ha) = 0  → lat = atan(-cos(ha)/tan(decl))
+  const termLats = [];
   for (let lon = -180; lon <= 180; lon += 2) {
-    const ha   = (lon - sunLon) * D2R;  // hour angle at this longitude
-    const tanDecl = Math.tan(decl);
-    if (Math.abs(tanDecl) < 1e-10) {
-      // Equinox: terminator is the prime meridian shifted by 90°
-      termLine.push([lon === sunLon + 90 || lon === sunLon - 90 ? 90 : 0, lon]);
-      continue;
-    }
-    const termLatRad = Math.atan(-Math.cos(ha) / tanDecl);
-    const termLat    = termLatRad * R2D;
-    termLine.push([termLat, lon]);
-
-    // Night polygon: extend to poles on the night side
-    if (decl > 0) {
-      nightTop.push([90, lon]);
-      nightBot.push([termLat, lon]);
-    } else {
-      nightTop.push([termLat, lon]);
-      nightBot.push([-90, lon]);
-    }
+    const ha = (lon - sunLon) * D2R;
+    if (Math.abs(decl) < 0.001) { termLats.push([0, lon]); continue; }
+    const lat = Math.atan(-Math.cos(ha) / Math.tan(decl)) * R2D;
+    termLats.push([Math.max(-89, Math.min(89, lat)), lon]);
   }
 
-  // Build proper night polygon closing through the poles
-  // nightBot: [termLat, lon] for -180..180 when decl>0 (summer)
-  // nightTop: [90, lon] for the pole cap
-  let nightPoly = [];
-  if (decl > 0) {
-    // Northern summer: night around south pole
-    nightPoly = [
-      ...nightBot,
-      [90, 180], [90, -180],           // top-right → top-left (night wraps through north)
-      // Actually for northern summer, night is around south pole:
-    ];
-    // Rebuild correctly for northern summer
-    nightPoly = [
-      ...nightBot,                      // terminator bottom edge (south)
-      [-90, 180], [-90, -180],         // south pole corners
-      nightBot[0],                      // close
-    ];
-  } else {
-    // Northern winter: night around north pole
-    nightPoly = [
-      ...nightTop,                      // terminator top edge (north)
-      [90, 180], [90, -180],           // north pole corners
-      nightTop[0],                      // close
-    ];
-  }
+  // Night polygon: connects terminator to the winter pole
+  // Northern summer (decl>0): night is in the southern polar region
+  // Northern winter (decl<0): night is in the northern polar region
+  const pole  = decl > 0 ? -90 : 90;
+  const nightPoly = [
+    ...termLats,
+    [pole, 180],
+    [pole, -180],
+    termLats[0],
+  ];
 
-  if (nightPoly.length > 4) {
-    L.polygon(nightPoly, {
-      color: 'none',
-      fillColor: '#000033',
-      fillOpacity: 0.30,
-      smoothFactor: 1,
-    }).addTo(map);
-  }
+  L.polygon(nightPoly, {
+    color:       'none',
+    fillColor:   '#000820',
+    fillOpacity: 0.35,
+    smoothFactor: 2,
+    interactive: false,
+  }).addTo(map);
 
-  // Draw terminator line (greyline ±6°) as two lines
-  [-6, 0, 6].forEach((offset, i) => {
-    const shifted = termLine.map(([lat, lon]) => [
-      Math.max(-89, Math.min(89, lat + offset)), lon
+  // Greyline: three polylines at -6°, 0°, +6° offset from terminator
+  [
+    { offset: -6, weight: 0.8, opacity: 0.5, dash: '3,5' },
+    { offset:  0, weight: 2.5, opacity: 0.9, dash: null  },
+    { offset:  6, weight: 0.8, opacity: 0.5, dash: '3,5' },
+  ].forEach(({ offset, weight, opacity, dash }) => {
+    const pts = termLats.map(([lat, lon]) => [
+      Math.max(-88, Math.min(88, lat + offset)), lon
     ]);
-    L.polyline(shifted, {
-      color: i === 1 ? '#BA7517' : '#BA7517',
-      weight: i === 1 ? 2 : 0.8,
-      opacity: i === 1 ? 0.85 : 0.4,
-      dashArray: i === 1 ? null : '3,5',
-      smoothFactor: 1,
+    L.polyline(pts, {
+      color:       '#EF9F27',
+      weight,
+      opacity,
+      dashArray:   dash,
+      smoothFactor: 2,
+      interactive: false,
     }).addTo(map);
   });
 }
