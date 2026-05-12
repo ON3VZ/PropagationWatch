@@ -81,7 +81,7 @@ function goSettings() {
     'settings-title': T('settings'),
     'sh-data':  '📡 '+T('dataSources').replace('📡 ',''),
     'sh-power': '⚡ '+T('powerLicense'),
-    'sh-loc':   '📍 '+T('locationLbl'),
+    'sh-loc':   '📍 '+T('locTitle'),
     'sh-disp':  '🎨 '+T('display'),
   };
   Object.entries(els).forEach(([id,txt])=>{const e=document.getElementById(id);if(e)e.textContent=txt;});
@@ -233,10 +233,15 @@ function multiHop(band, distKm) {
   if (!m || distKm <= m) return 1;
   return Math.max(.05, Math.exp(-.18*(distKm-m)/2000));
 }
-function pwrFactor(pw, mode) {
-  const db  = 10*Math.log10((pw||100)/100);
-  const mg  = MODE_MARGIN[mode] || 10;
-  return Math.max(0.15, Math.min(1.2, 1+db/mg));
+function pwrFactor(pw, mode, distKm) {
+  // Distance-aware: short paths have large propagation reserves
+  // 25W SSB works fine for European paths (<2000km)
+  const db  = 10 * Math.log10((pw||100) / 100);
+  const mg  = MODE_MARGIN[mode] || 12;
+  const raw = 1 + db / mg;
+  // distWeight: 0 at 500km (no penalty), 1 at 6000km+ (full penalty)
+  const dw  = Math.min(1, Math.max(0, ((distKm||5000) - 500) / 5500));
+  return Math.max(0.15, Math.min(1.2, 1.0 + (raw - 1.0) * dw));
 }
 
 function calcRel(band, mode, distKm, txLat, txLon, rxLat, rxLon, pw, atDate) {
@@ -260,7 +265,7 @@ function calcRel(band, mode, distKm, txLat, txLon, rxLat, rxLon, pw, atDate) {
   b *= f2grad(txEl, rxEl, midEl, distKm, band);
   b  = Math.max(0, Math.min(.99, b));
 
-  const pf  = pwrFactor(pw||100, mode);
+  const pf  = pwrFactor(pw||100, mode, distKm);
   const rel = Math.max(0, Math.min(.99, b*pf));
   return {rel, base:b, muf, txEl, rxEl};
 }
@@ -757,7 +762,7 @@ function renderSetup(quickCheck) {
   _quickCheck = !!quickCheck;
   _setupStep  = S.user.configured ? 2 : 1;
   _selTarget  = null;
-  _openGroup  = null;  // reset region selector each time
+  _openGroup  = null; // reset so Europe tab isn't pre-selected
   renderSetupStep();
 }
 
@@ -1206,15 +1211,25 @@ async function doTestAPI() {
   }
 
   // Test DX cluster
-  await testOne('dx', apiURLs.dx + '&nocache='+Date.now(), raw => {
-    // PSK Reporter returns JSONP - parse the callback wrapper
-    if (typeof raw === 'string') {
-      const json = raw.replace(/^[a-zA-Z_]+\(|\)$/g,'');
-      const d = JSON.parse(json);
-      const n = d?.receptionReports?.length ?? d?.currentSpots ?? 0;
-      return n + ' spots';
-    }
-    return 'OK';
+  // DX: test via JSONP script injection
+  await new Promise(resolve => {
+    const cbName = '_psktest_' + Date.now();
+    const timer  = setTimeout(() => {
+      apiSt.dx = {ok:false, val:null, err:'Timeout after 8s', ms:8000};
+      resolve();
+    }, 8000);
+    window[cbName] = (d) => {
+      clearTimeout(timer);
+      const n = d?.receptionReports?.length ?? 0;
+      apiSt.dx = {ok:true, val: n + ' spots', err:null, ms: Date.now()-t0};
+      renderAPIEndpoints();
+      resolve();
+    };
+    const t0 = Date.now();
+    const sc = document.createElement('script');
+    sc.src = `https://pskreporter.info/cgi-bin/pskquery5.pl?encap=0&callback=${cbName}&statistics=0&flowStartSeconds=-600&fDXgrid=JO20&limit=5`;
+    sc.onerror = () => { clearTimeout(timer); apiSt.dx={ok:false,val:null,err:'Failed to load script',ms:Date.now()-t0}; resolve(); };
+    document.head.appendChild(sc);
   });
 
   const anyOk = apiSt.kp.ok||apiSt.sfi.ok;
@@ -1684,60 +1699,128 @@ let _map = null;
 function initMap(w) {
   const el = document.getElementById('map-container');
   if (!el || !window.L) return;
-
-  // Destroy existing map
   if (_map) { _map.remove(); _map = null; }
 
-  const txLat = S.user.lat || 50.9;
-  const txLon = S.user.lon || 4.4;
+  const txLat = S.user.lat || 50.9, txLon = S.user.lon || 4.4;
 
-  _map = L.map('map-container', { zoomControl: true }).setView([txLat, txLon], 2);
+  _map = L.map('map-container', { zoomControl: true }).setView([20, 0], 2);
 
-  // Tile layer
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap',
-    maxZoom: 10,
+    attribution: '© OpenStreetMap', maxZoom: 10,
   }).addTo(_map);
 
-  // TX marker
-  const txIcon = L.divIcon({ html:'<div class="map-marker map-marker-tx">TX</div>', iconSize:[32,22], className:'' });
-  const rxIcon = L.divIcon({ html:'<div class="map-marker map-marker-rx">'+w.entity+'</div>', iconSize:[40,22], className:'' });
+  // ── Day/night terminator (FIRST so it's under everything) ──
+  drawTerminator(_map);
+
+  // ── Great-circle paths ──
+  const gcPoints = greatCirclePoints(txLat, txLon, w.lat, w.lon, 80);
+  const lpPoints = greatCirclePoints(txLat, txLon, w.lat, w.lon, 80, true);
+
+  // Colour the short path by current reliability (green=open, orange=marginal, red=closed)
+  const pct = Math.round((w.rel||0)*100);
+  const pathColor = pct>=60?'#1D9E75':pct>=30?'#EF9F27':'#E24B4A';
+
+  L.polyline(gcPoints, { color: pathColor, weight: 3, opacity: 0.9 }).addTo(_map)
+   .bindPopup(`<b>Short path</b><br>${w.az}° · ${Number(w.dist).toLocaleString()} km<br>Reliability: ${pct}%`);
+  L.polyline(lpPoints, { color: '#EF9F27', weight: 1.5, opacity: 0.5, dashArray: '6,4' }).addTo(_map)
+   .bindPopup(`<b>Long path</b><br>${w.azlp}° · ${Number(40075-w.dist).toLocaleString()} km`);
+
+  // ── Markers ──
+  const txIcon = L.divIcon({ html:`<div class="map-marker map-marker-tx">TX</div>`, iconSize:[32,22], className:'' });
+  const rxIcon = L.divIcon({ html:`<div class="map-marker map-marker-rx">${w.entity}</div>`, iconSize:[40,22], className:'' });
 
   L.marker([txLat, txLon], { icon: txIcon })
    .bindPopup(`<b>TX: ${S.user.callsign||S.user.grid||'Home'}</b><br>${S.user.grid||''}`)
    .addTo(_map);
-
   L.marker([w.lat, w.lon], { icon: rxIcon })
-   .bindPopup(`<b>${w.entity} — ${w.name}</b><br>${w.grid||''}<br>${Number(w.dist).toLocaleString()} km`)
+   .bindPopup(`<b>${w.entity} — ${w.name||''}</b><br>${w.grid||''}<br>${Number(w.dist).toLocaleString()} km`)
    .addTo(_map);
 
-  // Great-circle path (short path)
-  const gcPoints = greatCirclePoints(txLat, txLon, w.lat, w.lon, 64);
-  L.polyline(gcPoints, { color: '#1D9E75', weight: 2.5, opacity: 0.85 }).addTo(_map);
+  // ── 24h path quality chart below map ──
+  const bmEl = document.getElementById('map-band-mode');
+  if (bmEl) bmEl.textContent = `${w.band} ${w.mode} · ${w.pw||S.user.txPowerW||100}W · threshold ${w.threshold||60}%`;
+  renderPathQualityChart(w);
 
-  // Long path (opposite direction)
-  const lpPoints = greatCirclePoints(txLat, txLon, w.lat, w.lon, 64, true);
-  L.polyline(lpPoints, { color: '#EF9F27', weight: 1.5, opacity: 0.5, dashArray: '6,6' }).addTo(_map);
-
-  // Greyline terminator
-  drawTerminator(_map);
-
-  // Legend
+  // ── Legend ──
   const legend = L.control({ position: 'bottomleft' });
   legend.onAdd = () => {
     const d = L.DomUtil.create('div', 'map-legend');
-    d.innerHTML = `<div><span style="color:#1D9E75">——</span> Short path (${w.az}°)</div>
-                   <div><span style="color:#EF9F27">- -</span> Long path (${w.azlp}°)</div>
-                   <div><span style="color:#BA7517">▓</span> Greyline (night side)</div>`;
+    d.innerHTML =
+      `<div><span style="color:${pathColor}">——</span> Short path ${w.az}° · ${pct}% now</div>`+
+      `<div><span style="color:#EF9F27">- -</span> Long path ${w.azlp}°</div>`+
+      `<div><span style="color:#EF9F27;opacity:.6">░</span> Night side</div>`+
+      `<div><span style="color:#EF9F27">——</span> Greyline ±6°</div>`;
     return d;
   };
   legend.addTo(_map);
 
-  // Fit bounds
-  _map.fitBounds([
-    [Math.min(txLat, w.lat) - 10, Math.min(txLon, w.lon) - 10],
-    [Math.max(txLat, w.lat) + 10, Math.max(txLon, w.lon) + 10],
-  ]);
+  // Fit to show both stations
+  try {
+    _map.fitBounds([
+      [Math.min(txLat, w.lat)-8, Math.min(txLon, w.lon)-15],
+      [Math.max(txLat, w.lat)+8, Math.max(txLon, w.lon)+15],
+    ], { maxZoom: 6 });
+  } catch(e) { _map.setView([txLat, txLon], 3); }
+}
+
+function renderPathQualityChart(w) {
+  const el = document.getElementById('map-quality-chart');
+  if (!el) return;
+
+  const u = S.user;
+  if (!u.lat || !w.lat) { el.innerHTML = ''; return; }
+
+  const BLOCKS = 48;      // 24h in 30-min steps
+  const STEP   = 30 * 60000;
+  const now    = new Date();
+  const start  = new Date(now); start.setMinutes(0,0,0);
+  const W      = el.clientWidth || 340;
+  const H      = 56;
+  const bw     = W / BLOCKS;
+  const thr    = (w.threshold||60) / 100;
+
+  // Compute reliability for each block
+  const blocks = [];
+  for (let i = 0; i < BLOCKS; i++) {
+    const t   = new Date(start.getTime() + i * STEP);
+    const r   = calcRel(w.band, w.mode, w.dist, u.lat, u.lon, w.lat, w.lon, w.pw||u.txPowerW, t);
+    blocks.push({ rel: r.rel, t });
+  }
+
+  // Build SVG
+  const nowX = Math.round((now - start) / STEP * bw);
+  let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+  svg += `<rect width="${W}" height="${H}" fill="#1A1F2E"/>`;
+
+  // Threshold line
+  const thrY = H - Math.round(thr * (H - 14)) - 6;
+  svg += `<line x1="0" y1="${thrY}" x2="${W}" y2="${thrY}" stroke="#5C6480" stroke-width="0.8" stroke-dasharray="3,3"/>`;
+  svg += `<text x="2" y="${thrY-2}" fill="#5C6480" font-size="8" font-family="monospace">${w.threshold||60}%</text>`;
+
+  // Reliability bars
+  blocks.forEach((b, i) => {
+    const x = Math.round(i * bw);
+    const barH = Math.max(2, Math.round(b.rel * (H - 14)));
+    const y = H - barH - 6;
+    const col = b.rel >= thr ? '#1D9E75' : b.rel >= thr*0.6 ? '#EF9F27' : '#E24B4A';
+    const op  = b.rel < 0.05 ? 0.2 : 0.8;
+    svg += `<rect x="${x}" y="${y}" width="${Math.max(1,bw-0.5)}" height="${barH}" fill="${col}" opacity="${op}"/>`;
+  });
+
+  // Hour labels
+  for (let h = 0; h <= 24; h += 3) {
+    const x  = Math.round(h * 2 * bw);
+    const hr = (start.getUTCHours() + h) % 24;
+    svg += `<line x1="${x}" y1="0" x2="${x}" y2="${H-8}" stroke="#262B3D" stroke-width="0.5"/>`;
+    svg += `<text x="${x}" y="${H-1}" fill="#5C6480" font-size="8" font-family="monospace" text-anchor="middle">${String(hr).padStart(2,'0')}h</text>`;
+  }
+
+  // Now marker
+  svg += `<line x1="${nowX}" y1="0" x2="${nowX}" y2="${H-8}" stroke="#fff" stroke-width="1.5" opacity="0.6"/>`;
+  svg += `<text x="${Math.min(nowX+2, W-20)}" y="9" fill="#9BA3BF" font-size="8" font-family="monospace">now</text>`;
+
+  svg += '</svg>';
+  el.innerHTML = svg;
 }
 
 // Approximate great-circle waypoints
