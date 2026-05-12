@@ -187,7 +187,7 @@ const KP_MAT = {
   '6m':[1,1,1,.97,.88,.7,.5,.3,.12,.04]
 };
 const D_LAYER = {'160m':{max:.95,half:6},'80m':{max:.9,half:10},'40m':{max:.82,half:18},'30m':{max:.35,half:35}};
-const MODE_MARGIN = {FT8:20,FT4:18,JT65:22,CW:13,SSB:10,AM:6,MSK144:12};
+const MODE_MARGIN = {FT8:20,FT4:18,JT65:22,CW:13,SSB:14,AM:8,MSK144:12};
 
 function sunElev(lat, lon, date) {
   if (!window.SunCalc || lat==null || isNaN(lat)) return -90;
