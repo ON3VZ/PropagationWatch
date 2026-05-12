@@ -72,6 +72,7 @@ function goQuickCheck() {
   renderSetup();
 }
 let _quickCheckMode = false;
+let _lastQuickWatch  = null;  // set by showQuickResult, read by saveAsWatch
 
 function goSettings() {
   showScreen('settings');
@@ -388,21 +389,11 @@ function showQuickResult(w) {
     <button class="btn btn-sec" onclick="goHome()" style="margin-top:4px">← Back</button>`;
 
   // Store temp watch for potential save
-  window._qcWatch = w;
+  _lastQuickWatch = w;
   showScreen('detail');
 }
 
-function saveAsWatch() {
-  const w = window._qcWatch;
-  if (!w) return;
-  w.id = crypto.randomUUID();
-  S.watches.push(w);
-  saveWatches();
-  S.user.configured = true;
-  saveUser();
-  toast(T('watchAdded')+': '+w.label+' '+w.band+' '+w.mode,'ok');
-  goHome();
-}
+// saveAsWatch defined below
 
 function renderHome() {
   updateStatusBar();
@@ -1349,16 +1340,19 @@ function showQuickResult(w) {
     <button class="btn btn-sec" onclick="goQuickCheck()" style="font-size:13px">← Check another</button>`;
 }
 
-// Save the last quick-check result as a real watch
-let _lastQuickWatch = null;
+// saveAsWatch uses _lastQuickWatch declared at top of file
 function saveAsWatch() {
-  if (!_lastQuickWatch) return;
   const w = _lastQuickWatch;
+  if (!w) { toast('No quick check result to save', 'warn'); return; }
+  // Give it a fresh UUID so it doesn't clash
+  w.id = crypto.randomUUID();
   S.watches.push(w);
   saveWatches();
   S.user.configured = true;
   saveUser();
-  toast('Watch saved: '+w.label+' '+w.band+' '+w.mode,'ok');
+  _lastQuickWatch = null;  // clear after save
+  toast(T('watchAdded')+': '+w.label+' '+w.band+' '+w.mode, 'ok');
+  evalAll();  // recalculate all watches including new one
   goHome();
 }
 
