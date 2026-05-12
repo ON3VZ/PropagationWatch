@@ -1704,7 +1704,7 @@ function initMap(w) {
   }).addTo(_map);
 
   // ── Day/night terminator (FIRST so it's under everything) ──
-  drawTerminator(_map);
+  try { drawTerminator(_map); } catch(e) { console.warn('terminator:', e.message); }
 
   // ── Great-circle paths ──
   const gcPoints = greatCirclePoints(txLat, txLon, w.lat, w.lon, 80);
@@ -1819,94 +1819,93 @@ function renderPathQualityChart(w) {
 
 // Approximate great-circle waypoints
 function greatCirclePoints(lat1, lon1, lat2, lon2, n, longPath) {
-  if (longPath) {
-    // Long path = go the other way around
-    lon2 = lon2 > lon1 ? lon2 - 360 : lon2 + 360;
+  try {
+    if (longPath) lon2 = lon2 > lon1 ? lon2 - 360 : lon2 + 360;
+    const pts = [];
+    const d2r = Math.PI/180, r2d = 180/Math.PI;
+    const la1=lat1*d2r, lo1=lon1*d2r, la2=lat2*d2r, lo2=lon2*d2r;
+    const d = 2*Math.asin(Math.sqrt(
+      Math.sin((la2-la1)/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin((lo2-lo1)/2)**2
+    ));
+    if (d < 0.0001) return [[lat1,lon1],[lat2,lon2]]; // same point guard
+    for (let i=0; i<=n; i++) {
+      const f = i/n;
+      const A = Math.sin((1-f)*d)/Math.sin(d);
+      const B = Math.sin(f*d)/Math.sin(d);
+      const x = A*Math.cos(la1)*Math.cos(lo1)+B*Math.cos(la2)*Math.cos(lo2);
+      const y = A*Math.cos(la1)*Math.sin(lo1)+B*Math.cos(la2)*Math.sin(lo2);
+      const z = A*Math.sin(la1)+B*Math.sin(la2);
+      const lat = Math.atan2(z, Math.sqrt(x*x+y*y))*r2d;
+      const lon  = Math.atan2(y, x)*r2d;
+      if (!isNaN(lat) && !isNaN(lon)) pts.push([lat, lon]);
+    }
+    return pts;
+  } catch(e) {
+    console.warn('greatCirclePoints error:', e.message);
+    return [[lat1,lon1],[lat2,lon2]];
   }
-  const pts = [];
-  const d2r = Math.PI/180, r2d = 180/Math.PI;
-  const la1=lat1*d2r, lo1=lon1*d2r, la2=lat2*d2r, lo2=lon2*d2r;
-  const d = 2*Math.asin(Math.sqrt(Math.sin((la2-la1)/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin((lo2-lo1)/2)**2));
-  for (let i=0; i<=n; i++) {
-    const f = i/n;
-    const A = Math.sin((1-f)*d)/Math.sin(d);
-    const B = Math.sin(f*d)/Math.sin(d);
-    const x = A*Math.cos(la1)*Math.cos(lo1)+B*Math.cos(la2)*Math.cos(lo2);
-    const y = A*Math.cos(la1)*Math.sin(lo1)+B*Math.cos(la2)*Math.sin(lo2);
-    const z = A*Math.sin(la1)+B*Math.sin(la2);
-    const lat = Math.atan2(z, Math.sqrt(x*x+y*y))*r2d;
-    const lon = Math.atan2(y, x)*r2d;
-    pts.push([lat, lon]);
-  }
-  return pts;
 }
 
 // Draw approximate greyline terminator as night-side overlay
 function drawTerminator(map) {
   if (!window.SunCalc) return;
-  const now   = new Date();
-  const D2R   = Math.PI / 180;
-  const R2D   = 180 / Math.PI;
+  try {
+    const now  = new Date();
+    const D2R  = Math.PI / 180;
+    const R2D  = 180 / Math.PI;
 
-  // Solar declination via Julian date (accurate ±0.5°)
-  const jd    = now / 86400000 + 2440587.5;
-  const n     = jd - 2451545.0;
-  const L     = (280.46 + 0.9856474 * n) % 360;
-  const g     = ((357.528 + 0.9856003 * n) % 360) * D2R;
-  const lam   = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2*g)) * D2R;
-  const decl  = Math.asin(Math.sin(23.439 * D2R) * Math.sin(lam)); // radians
+    // Solar declination
+    const jd   = now / 86400000 + 2440587.5;
+    const n    = jd - 2451545.0;
+    const L    = (280.46 + 0.9856474 * n) % 360;
+    const g    = ((357.528 + 0.9856003 * n) % 360) * D2R;
+    const lam  = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2*g)) * D2R;
+    const decl = Math.asin(Math.sin(23.439 * D2R) * Math.sin(lam));
 
-  // Sun's sub-solar longitude (where sun is directly overhead)
-  const utcH   = now.getUTCHours() + now.getUTCMinutes()/60 + now.getUTCSeconds()/3600;
-  const sunLon = -(utcH - 12) * 15;  // degrees
+    const utcH   = now.getUTCHours() + now.getUTCMinutes()/60;
+    const sunLon = -(utcH - 12) * 15;
 
-  // Build terminator: for each longitude, lat where solar elevation = 0
-  // Formula: tan(decl) + tan(lat)*cos(ha) = 0  → lat = atan(-cos(ha)/tan(decl))
-  const termLats = [];
-  for (let lon = -180; lon <= 180; lon += 2) {
-    const ha = (lon - sunLon) * D2R;
-    if (Math.abs(decl) < 0.001) { termLats.push([0, lon]); continue; }
-    const lat = Math.atan(-Math.cos(ha) / Math.tan(decl)) * R2D;
-    termLats.push([Math.max(-89, Math.min(89, lat)), lon]);
+    // Terminator points
+    const term = [];
+    for (let lon = -180; lon <= 180; lon += 3) {
+      const ha = (lon - sunLon) * D2R;
+      if (Math.abs(decl) < 0.001) { term.push([0, lon]); continue; }
+      const lat = Math.atan(-Math.cos(ha) / Math.tan(decl)) * R2D;
+      term.push([Math.max(-85, Math.min(85, lat)), lon]);
+    }
+
+    // Night-side rectangles (avoids antimeridian polygon issues in Leaflet)
+    // Sample a grid and shade cells that are in night
+    for (let lon = -180; lon < 180; lon += 6) {
+      for (let lat = -84; lat < 84; lat += 6) {
+        const elev = SunCalc.getPosition(now, lat + 3, lon + 3).altitude * R2D;
+        if (elev < -6) {
+          L.rectangle([[lat, lon],[lat+6, lon+6]], {
+            color: 'none', fillColor: '#000820', fillOpacity: 0.30,
+            interactive: false,
+          }).addTo(map);
+        }
+      }
+    }
+
+    // Greyline: the terminator line itself + ±6° zone
+    [
+      { offset: -6, weight: 0.7, opacity: 0.5, dash: '3,5' },
+      { offset:  0, weight: 2.5, opacity: 0.9, dash: null  },
+      { offset:  6, weight: 0.7, opacity: 0.5, dash: '3,5' },
+    ].forEach(({ offset, weight, opacity, dash }) => {
+      const pts = term.map(([lat, lon]) => [
+        Math.max(-85, Math.min(85, lat + offset)), lon
+      ]);
+      L.polyline(pts, {
+        color: '#EF9F27', weight, opacity, dashArray: dash,
+        smoothFactor: 1, interactive: false,
+      }).addTo(map);
+    });
+
+  } catch(e) {
+    console.warn('drawTerminator error:', e.message);
   }
-
-  // Night polygon: connects terminator to the winter pole
-  // Northern summer (decl>0): night is in the southern polar region
-  // Northern winter (decl<0): night is in the northern polar region
-  const pole  = decl > 0 ? -90 : 90;
-  const nightPoly = [
-    ...termLats,
-    [pole, 180],
-    [pole, -180],
-    termLats[0],
-  ];
-
-  L.polygon(nightPoly, {
-    color:       'none',
-    fillColor:   '#000820',
-    fillOpacity: 0.35,
-    smoothFactor: 2,
-    interactive: false,
-  }).addTo(map);
-
-  // Greyline: three polylines at -6°, 0°, +6° offset from terminator
-  [
-    { offset: -6, weight: 0.8, opacity: 0.5, dash: '3,5' },
-    { offset:  0, weight: 2.5, opacity: 0.9, dash: null  },
-    { offset:  6, weight: 0.8, opacity: 0.5, dash: '3,5' },
-  ].forEach(({ offset, weight, opacity, dash }) => {
-    const pts = termLats.map(([lat, lon]) => [
-      Math.max(-88, Math.min(88, lat + offset)), lon
-    ]);
-    L.polyline(pts, {
-      color:       '#EF9F27',
-      weight,
-      opacity,
-      dashArray:   dash,
-      smoothFactor: 2,
-      interactive: false,
-    }).addTo(map);
-  });
 }
 
 function closeMap() { showScreen('home'); renderHome(); }
