@@ -1930,7 +1930,13 @@ function renderDXPanel() {
     .slice(0, 10);
 
   if (!relevant.length) {
-    el.innerHTML = '';
+    const status = _dxFetchedAt
+      ? `<div style="font-size:12px;color:var(--tx3);padding:4px 0">
+           No spots on watched bands (${[...watchedBands].join(', ')}) in last 30 min.
+           <br>Source: dxwatch.com / PSK Reporter
+         </div>`
+      : `<div style="font-size:12px;color:var(--tx3);padding:4px 0">⏳ Fetching DX spots…</div>`;
+    el.innerHTML = `<div style="font-weight:600;font-size:13px;margin-bottom:6px">📻 Live DX spots</div>${status}`;
     return;
   }
 

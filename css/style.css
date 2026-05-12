@@ -295,3 +295,33 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .dx-spot-mode { color: var(--tx2); min-width: 35px; }
 .dx-spot-de   { color: var(--tx3); flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .dx-spot-age  { color: var(--tx3); font-size: 10px; flex-shrink: 0; }
+
+/* ── Region selector (hierarchical suggestions) ── */
+.region-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.region-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg3);
+  border: 1px solid var(--bdr);
+  border-radius: var(--r8);
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tx2);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  text-align: center;
+}
+.region-btn-active {
+  background: var(--good-bg);
+  border-color: var(--good);
+  color: var(--good-tx);
+}
