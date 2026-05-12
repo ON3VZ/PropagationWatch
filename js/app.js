@@ -627,18 +627,74 @@ function renderTimeline() {
 }
 
 // ── Setup wizard ──
-const SUGG=[
-  {entity:'W',   name:'North America',   grid:'FN41',lat:42.4,  lon:-71.1},
-  {entity:'SM',  name:'Scandinavia',     grid:'JP90',lat:60.2,  lon:18.0 },
-  {entity:'EA',  name:'South Europe',    grid:'IM99',lat:40.4,  lon:-3.7 },
-  {entity:'JA',  name:'Japan',           grid:'PM96',lat:36.2,  lon:138.3},
-  {entity:'VK',  name:'Australia',       grid:'QF22',lat:-33.9, lon:151.2},
-  {entity:'ZL',  name:'New Zealand',     grid:'RF70',lat:-36.9, lon:174.8},
-  {entity:'CU',  name:'Azores',          grid:'HM67',lat:37.7,  lon:-25.7},
-  {entity:'PY',  name:'Brazil',          grid:'GG66',lat:-15.8, lon:-47.9},
-  {entity:'VP8', name:'Falkland Islands',grid:'GD17',lat:-51.7, lon:-57.9},
-  {entity:'ZS',  name:'South Africa',    grid:'KG33',lat:-25.8, lon:28.2 },
+// Suggestion groups shown in setup step 2
+// Distances and bearings are calculated dynamically from user location
+const SUGG_GROUPS = [
+  {
+    label: '🇪🇺 Europe',
+    items: [
+      {entity:'G',   name:'United Kingdom',  grid:'IO91',lat:51.5, lon:-0.1 },
+      {entity:'DL',  name:'Germany',         grid:'JO51',lat:51.2, lon:10.5 },
+      {entity:'F',   name:'France',          grid:'JN03',lat:46.0, lon:2.4  },
+      {entity:'I',   name:'Italy',           grid:'JN61',lat:41.9, lon:12.5 },
+      {entity:'EA',  name:'Spain',           grid:'IM99',lat:40.4, lon:-3.7 },
+      {entity:'PA',  name:'Netherlands',     grid:'JO22',lat:52.1, lon:5.3  },
+      {entity:'SM',  name:'Sweden',          grid:'JP90',lat:59.3, lon:18.1 },
+      {entity:'LA',  name:'Norway',          grid:'JP53',lat:59.9, lon:10.7 },
+      {entity:'OH',  name:'Finland',         grid:'KP20',lat:60.2, lon:24.9 },
+      {entity:'OZ',  name:'Denmark',         grid:'JO65',lat:55.7, lon:12.6 },
+      {entity:'HB9', name:'Switzerland',     grid:'JN47',lat:46.9, lon:7.4  },
+      {entity:'OE',  name:'Austria',         grid:'JN77',lat:47.8, lon:13.0 },
+      {entity:'SP',  name:'Poland',          grid:'KO02',lat:52.2, lon:21.0 },
+      {entity:'OK',  name:'Czech Republic',  grid:'JO70',lat:50.1, lon:14.4 },
+      {entity:'HA',  name:'Hungary',         grid:'JN97',lat:47.5, lon:19.1 },
+      {entity:'YO',  name:'Romania',         grid:'KN36',lat:44.4, lon:26.1 },
+      {entity:'SV',  name:'Greece',          grid:'KM17',lat:38.0, lon:23.7 },
+      {entity:'UA',  name:'Russia (EU)',     grid:'KO85',lat:55.8, lon:37.6 },
+      {entity:'CT',  name:'Portugal',        grid:'IM57',lat:38.7, lon:-9.1 },
+      {entity:'CU',  name:'Azores',          grid:'HM67',lat:37.7, lon:-25.7},
+    ]
+  },
+  {
+    label: '🌎 Americas',
+    items: [
+      {entity:'W',   name:'USA (East)',      grid:'FN41',lat:42.4,  lon:-71.1},
+      {entity:'W6',  name:'USA (West)',      grid:'DM04',lat:33.7,  lon:-116.2},
+      {entity:'VE',  name:'Canada',          grid:'FN25',lat:45.5,  lon:-73.6},
+      {entity:'XE',  name:'Mexico',          grid:'EK09',lat:19.4,  lon:-99.1},
+      {entity:'PY',  name:'Brazil',          grid:'GG66',lat:-15.8, lon:-47.9},
+      {entity:'LU',  name:'Argentina',       grid:'GF05',lat:-34.6, lon:-58.4},
+      {entity:'VP8', name:'Falkland Islands',grid:'GD17',lat:-51.7, lon:-57.9},
+      {entity:'CU',  name:'Azores',          grid:'HM67',lat:37.7,  lon:-25.7},
+    ]
+  },
+  {
+    label: '🌏 Asia-Pacific',
+    items: [
+      {entity:'JA',  name:'Japan',           grid:'PM96',lat:36.2,  lon:138.3},
+      {entity:'BY',  name:'China',           grid:'PL03',lat:39.9,  lon:116.4},
+      {entity:'HL',  name:'South Korea',     grid:'PM37',lat:37.6,  lon:126.9},
+      {entity:'VK',  name:'Australia',       grid:'QF22',lat:-33.9, lon:151.2},
+      {entity:'ZL',  name:'New Zealand',     grid:'RF70',lat:-36.9, lon:174.8},
+      {entity:'9V1', name:'Singapore',       grid:'OJ11',lat:1.3,   lon:103.8},
+      {entity:'VU',  name:'India',           grid:'ML88',lat:28.6,  lon:77.2 },
+    ]
+  },
+  {
+    label: '🌍 Africa & Middle East',
+    items: [
+      {entity:'ZS',  name:'South Africa',    grid:'KG33',lat:-25.8, lon:28.2 },
+      {entity:'EA8', name:'Canary Islands',  grid:'IL28',lat:28.1,  lon:-15.4},
+      {entity:'5B4', name:'Cyprus',          grid:'KM64',lat:35.2,  lon:33.4 },
+      {entity:'4X',  name:'Israel',          grid:'KM71',lat:31.8,  lon:35.2 },
+      {entity:'JY',  name:'Jordan',          grid:'KM71',lat:31.9,  lon:35.9 },
+      {entity:'ZD8', name:'Ascension Island',grid:'II22',lat:-7.9,  lon:-14.4},
+    ]
+  },
 ];
+
+// Flat list for backward compatibility
+const SUGG = SUGG_GROUPS.flatMap(g => g.items);
 let _selTarget = null, _setupStep = 1;
 
 let _quickCheck = false;
@@ -715,7 +771,7 @@ function renderStep2(el) {
     <div class="prog-bar"><div class="prog-dot done"></div><div class="prog-dot active"></div><div class="prog-dot"></div></div>
     <div class="setup-title">Target station</div>
     <div class="setup-sub">Choose a region or enter a callsign prefix.</div>
-    <div class="sugg-grid" id="sugg-grid"></div>
+    <div id="sugg-grid"></div>
     <div class="field">
       <label>Or enter manually</label>
       <input id="s-dx" placeholder="e.g. VP8, JA1ZZZ" autocapitalize="characters" oninput="hintDX(this.value)"/>
@@ -1640,62 +1696,82 @@ function greatCirclePoints(lat1, lon1, lat2, lon2, n, longPath) {
 // Draw approximate greyline terminator as night-side overlay
 function drawTerminator(map) {
   if (!window.SunCalc) return;
-  const now   = new Date();
-  const pts   = [];
-  const R2D   = 180/Math.PI;
+  const now = new Date();
+  const D2R = Math.PI / 180;
+  const R2D = 180 / Math.PI;
 
-  // Generate terminator polygon (approximate)
-  // The terminator is a great circle perpendicular to the sun direction
-  const sunPos = SunCalc.getPosition(now, 0, 0);
-  // Sun azimuth in geographic terms
+  // Exact mathematical terminator using solar declination and hour angle
+  // At the terminator: sin(elev) = 0
+  // sin(lat)*sin(decl) + cos(lat)*cos(decl)*cos(ha) = 0
+  // → lat = atan(-cos(ha) / tan(decl))  [for given ha at longitude lon]
+
+  // Get solar position at Greenwich to derive declination
+  const sunGMT = SunCalc.getPosition(now, 0, 0);
+  // Approximate declination from altitude at noon meridian
+  // Better: use the actual solar parameters
+  const jd    = now / 86400000 + 2440587.5;
+  const n     = jd - 2451545.0;
+  const L     = (280.46 + 0.9856474 * n) % 360;
+  const g     = (357.528 + 0.9856003 * n) % 360 * D2R;
+  const lam   = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2*g)) * D2R;
+  const eps   = 23.439 * D2R;
+  const decl  = Math.asin(Math.sin(eps) * Math.sin(lam)); // solar declination
+
+  // Solar noon longitude (sun is directly overhead at this longitude)
+  const utcH  = now.getUTCHours() + now.getUTCMinutes()/60 + now.getUTCSeconds()/3600;
+  const sunLon = -(utcH - 12) * 15;  // degrees
+
+  // Build terminator line and night polygon
+  const termLine  = [];
+  const nightTop  = [];  // northern terminator boundary
+  const nightBot  = [];  // southern terminator boundary
+
   for (let lon = -180; lon <= 180; lon += 2) {
-    // Find latitude where solar elevation = 0
-    // Simple approximation: use the solar declination
-    const decl  = sunPos.altitude * R2D; // approximate
-    const ha    = (lon - (now.getUTCHours()+now.getUTCMinutes()/60-12)*15);
-    const elev  = Math.asin(
-      Math.sin(decl*Math.PI/180)*Math.sin(0) +
-      Math.cos(decl*Math.PI/180)*Math.cos(0)*Math.cos(ha*Math.PI/180)
-    ) * R2D;
-    // Use SunCalc per latitude
-    for (let lat = -90; lat <= 90; lat += 5) {
-      const e = SunCalc.getPosition(now, lat, lon).altitude * R2D;
-      if (Math.abs(e) < 3) { pts.push([lat, lon]); break; }
+    const ha   = (lon - sunLon) * D2R;  // hour angle at this longitude
+    const tanDecl = Math.tan(decl);
+    if (Math.abs(tanDecl) < 1e-10) {
+      // Equinox: terminator is the prime meridian shifted by 90°
+      termLine.push([lon === sunLon + 90 || lon === sunLon - 90 ? 90 : 0, lon]);
+      continue;
+    }
+    const termLatRad = Math.atan(-Math.cos(ha) / tanDecl);
+    const termLat    = termLatRad * R2D;
+    termLine.push([termLat, lon]);
+
+    // Night polygon: extend to poles on the night side
+    if (decl > 0) {
+      nightTop.push([90, lon]);
+      nightBot.push([termLat, lon]);
+    } else {
+      nightTop.push([termLat, lon]);
+      nightBot.push([-90, lon]);
     }
   }
 
-  // Shade night side (simplified: shade where sun is below horizon)
-  const nightPoly = [];
-  for (let lon=-180; lon<=180; lon+=3) {
-    for (let lat=-90; lat<=90; lat+=3) {
-      const e = SunCalc.getPosition(now, lat, lon).altitude * R2D;
-      if (e < -6) nightPoly.push([lat, lon]);
-    }
-  }
-
-  // Draw as a set of small rectangles (efficient approximation)
-  if (nightPoly.length > 0) {
-    L.rectangle([[-90,-180],[90,180]], {
-      color: 'none', fillColor: '#000', fillOpacity: 0.0,
-    }).addTo(map); // Placeholder — full terminator needs more complex polygon
-  }
-
-  // Better: draw the terminator line
-  const termLine = [];
-  for (let lon=-180; lon<=180; lon+=2) {
-    let termLat = null;
-    for (let lat=-88; lat<=88; lat+=1) {
-      const e = SunCalc.getPosition(now, lat, lon).altitude * R2D;
-      if (Math.abs(e) < 1.5) { termLat = lat; break; }
-    }
-    if (termLat !== null) termLine.push([termLat, lon]);
-  }
-  if (termLine.length > 10) {
-    L.polyline(termLine, {
-      color: '#BA7517', weight: 2, opacity: 0.7,
-      dashArray: '4,4',
+  // Draw night-side polygon (semi-transparent dark overlay)
+  const polygon = [...nightBot, ...[...nightTop].reverse()];
+  if (polygon.length > 4) {
+    L.polygon(polygon, {
+      color: 'none',
+      fillColor: '#000033',
+      fillOpacity: 0.25,
+      smoothFactor: 1,
     }).addTo(map);
   }
+
+  // Draw terminator line (greyline ±6°) as two lines
+  [-6, 0, 6].forEach((offset, i) => {
+    const shifted = termLine.map(([lat, lon]) => [
+      Math.max(-89, Math.min(89, lat + offset)), lon
+    ]);
+    L.polyline(shifted, {
+      color: i === 1 ? '#BA7517' : '#BA7517',
+      weight: i === 1 ? 2 : 0.8,
+      opacity: i === 1 ? 0.85 : 0.4,
+      dashArray: i === 1 ? null : '3,5',
+      smoothFactor: 1,
+    }).addTo(map);
+  });
 }
 
 function closeMap() { showScreen('home'); renderHome(); }
