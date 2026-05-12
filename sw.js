@@ -1,5 +1,5 @@
 /* Propagation Watch — Service Worker v15 */
-const CACHE = 'pw-v20';
+const CACHE = 'pw-v21';
 const STATIC = [
   './', './index.html', './manifest.json',
   './css/style.css', './js/app.js', './lib/suncalc.js'
