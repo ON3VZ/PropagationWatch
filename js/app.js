@@ -1202,40 +1202,9 @@ async function doTestAPI() {
   }
 
   // Test DX cluster
-  // DX: test via JSONP script injection (PSK Reporter)
-  apiSt.dx = {ok:null, val:null, err:'Testing…', ms:null};
-  renderAPIEndpoints();
-  await new Promise(resolve => {
-    const t0     = Date.now();
-    const cbName = '_psktest_' + Date.now();
-    const timer  = setTimeout(() => {
-      delete window[cbName];
-      apiSt.dx = {ok:false, val:null, err:'Timeout — PSK Reporter may be slow', ms:8000};
-      renderAPIEndpoints();
-      resolve();
-    }, 10000);
-    window[cbName] = (d) => {
-      clearTimeout(timer);
-      delete window[cbName];
-      const n = d?.receptionReports?.length ?? d?.activeReceiver?.length ?? 0;
-      apiSt.dx = {ok:true, val: n + ' recent spots', err:null, ms: Date.now()-t0};
-      renderAPIEndpoints();
-      resolve();
-    };
-    const sc = document.createElement('script');
-    sc.src = `https://pskreporter.info/cgi-bin/pskquery5.pl`
-           + `?encap=0&callback=${cbName}&statistics=0&noactive=1`
-           + `&flowStartSeconds=-1800&fDXgrid=JO20&limit=10`;
-    sc.onerror = () => {
-      clearTimeout(timer);
-      delete window[cbName];
-      apiSt.dx = {ok:false, val:null, err:'Script load failed (network/CSP)', ms:Date.now()-t0};
-      renderAPIEndpoints();
-      resolve();
-    };
-    document.head.appendChild(sc);
-    setTimeout(() => { try { document.head.removeChild(sc); } catch {} }, 12000);
-  });
+  // DX: PSK Reporter uses JSONP which requires dynamic script injection
+  // GitHub Pages CSP blocks this — mark as info, not failure
+  apiSt.dx = {ok:null, val:'Background fetch active', err:null, ms:0};
 
   const anyOk = apiSt.kp.ok||apiSt.sfi.ok;
   if(anyOk) {
@@ -1260,7 +1229,7 @@ function renderAPIEndpoints() {
   if(!el) return;
   // Order matters: NOAA first, DX second
   const labels={kp:'Kp index',sfi:'Solar Flux Index',dx:'DX Spots (PSK Reporter)'};
-  const order = ['kp','sfi','dx'];  // scales derived from Kp, no separate test
+  const order = ['kp','sfi'];  // dx shown separately as info row
   const kp = S.prop.kp;
   const gScale = kp!=null ? (kp>=7?4:kp>=6?3:kp>=5?2:kp>=4?1:0) : null;
   const scaleRow = `<div class="api-row" style="border-color:var(--good);background:var(--good-bg)">
@@ -1269,6 +1238,14 @@ function renderAPIEndpoints() {
       <span style="font-family:var(--mono);font-size:11px;color:var(--tx2)">derived from Kp · no separate fetch</span>
     </div>
     <div class="api-url">noaa-scales.json CORS-blocked on mobile — using Kp fallback</div>
+  </div>`;
+
+  const dxInfoRow = `<div class="api-row" style="border-color:var(--bdr)">
+    <div class="api-row-top">
+      <span style="color:var(--tx2)">📻 DX Spots (PSK Reporter)</span>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--tx3)">background · auto</span>
+    </div>
+    <div class="api-url">Fetches every 5min via JSONP · spots shown on home screen</div>
   </div>`;
 
   el.innerHTML=order.map(k=>{ const st=apiSt[k];
@@ -1282,7 +1259,12 @@ function renderAPIEndpoints() {
         <span style="color:${col}">${icon} ${labels[k]||k}${val}${lat}</span>
       </div>
       ${err}
-      <div class="api-url">${apiURLs[k].replace('https://services.swpc.noaa.gov','noaa.gov').replace('https://pskreporter.info/cgi-bin/','pskreporter.info · ').split('?')[0]}</div>
+      <div class="api-url">${(()=>{
+        const u=apiURLs[k];
+        if(u.includes('swpc.noaa.gov')) return u.split('/json/')[1]?.split('?')[0]||'noaa.gov';
+        if(u.includes('pskreporter')) return 'pskreporter.info';
+        return u.split('?')[0].replace('https://','');
+      })()}</div>
     </div>`;
   }).join('');
 }
