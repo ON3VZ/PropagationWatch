@@ -80,7 +80,7 @@ function goSettings() {
   // Translate settings screen
   const els = {
     'settings-title': T('settings'),
-    'sh-data':  '📡 '+T('dataSources').replace('📡 ',''),
+    'sh-data':  T('dataTitle'),
     'sh-power': '⚡ '+T('powerLicense'),
     'sh-loc':   '📍 '+T('locTitle'),
     'sh-disp':  '🎨 '+T('display'),
@@ -1202,25 +1202,39 @@ async function doTestAPI() {
   }
 
   // Test DX cluster
-  // DX: test via JSONP script injection
+  // DX: test via JSONP script injection (PSK Reporter)
+  apiSt.dx = {ok:null, val:null, err:'Testing…', ms:null};
+  renderAPIEndpoints();
   await new Promise(resolve => {
+    const t0     = Date.now();
     const cbName = '_psktest_' + Date.now();
     const timer  = setTimeout(() => {
-      apiSt.dx = {ok:false, val:null, err:'Timeout after 8s', ms:8000};
+      delete window[cbName];
+      apiSt.dx = {ok:false, val:null, err:'Timeout — PSK Reporter may be slow', ms:8000};
+      renderAPIEndpoints();
       resolve();
-    }, 8000);
+    }, 10000);
     window[cbName] = (d) => {
       clearTimeout(timer);
-      const n = d?.receptionReports?.length ?? 0;
-      apiSt.dx = {ok:true, val: n + ' spots', err:null, ms: Date.now()-t0};
+      delete window[cbName];
+      const n = d?.receptionReports?.length ?? d?.activeReceiver?.length ?? 0;
+      apiSt.dx = {ok:true, val: n + ' recent spots', err:null, ms: Date.now()-t0};
       renderAPIEndpoints();
       resolve();
     };
-    const t0 = Date.now();
     const sc = document.createElement('script');
-    sc.src = `https://pskreporter.info/cgi-bin/pskquery5.pl?encap=0&callback=${cbName}&statistics=0&flowStartSeconds=-600&fDXgrid=JO20&limit=5`;
-    sc.onerror = () => { clearTimeout(timer); apiSt.dx={ok:false,val:null,err:'Failed to load script',ms:Date.now()-t0}; resolve(); };
+    sc.src = `https://pskreporter.info/cgi-bin/pskquery5.pl`
+           + `?encap=0&callback=${cbName}&statistics=0&noactive=1`
+           + `&flowStartSeconds=-1800&fDXgrid=JO20&limit=10`;
+    sc.onerror = () => {
+      clearTimeout(timer);
+      delete window[cbName];
+      apiSt.dx = {ok:false, val:null, err:'Script load failed (network/CSP)', ms:Date.now()-t0};
+      renderAPIEndpoints();
+      resolve();
+    };
     document.head.appendChild(sc);
+    setTimeout(() => { try { document.head.removeChild(sc); } catch {} }, 12000);
   });
 
   const anyOk = apiSt.kp.ok||apiSt.sfi.ok;
@@ -1268,7 +1282,7 @@ function renderAPIEndpoints() {
         <span style="color:${col}">${icon} ${labels[k]||k}${val}${lat}</span>
       </div>
       ${err}
-      <div class="api-url">${apiURLs[k].replace('https://services.swpc.noaa.gov','')}</div>
+      <div class="api-url">${apiURLs[k].replace('https://services.swpc.noaa.gov','noaa.gov').replace('https://pskreporter.info/cgi-bin/','pskreporter.info · ').split('?')[0]}</div>
     </div>`;
   }).join('');
 }

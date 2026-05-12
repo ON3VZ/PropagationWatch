@@ -101,11 +101,16 @@
   <!-- API -->
   <div class="card">
     <h3 style="font-weight:600;margin-bottom:12px"><span id="sh-data">📡 Data Sources</span></h3>
-    <button class="btn btn-pri" id="api-test-btn" onclick="doTestAPI()" style="margin-top:0;margin-bottom:12px">
-      🔌 Test API
-    </button>
-    <div id="api-status-box" style="font-size:12px;color:var(--tx2);margin-bottom:8px">
-      Tap Test API to check connectivity.
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div id="api-status-box" style="font-size:12px;color:var(--tx2)">
+        Tap Test API to check NOAA and DX connectivity.
+      </div>
+      <button id="api-test-btn" onclick="doTestAPI()"
+        style="background:var(--good);color:#fff;border:none;border-radius:var(--r8);
+               padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;
+               white-space:nowrap;min-height:40px;flex-shrink:0;margin-left:10px">
+        🔌 Test API
+      </button>
     </div>
     <div id="api-endpoints"></div>
   </div>
