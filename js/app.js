@@ -695,6 +695,60 @@ const SUGG_GROUPS = [
 
 // Flat list for backward compatibility
 const SUGG = SUGG_GROUPS.flatMap(g => g.items);
+
+// Region selector state (module-level so it persists across renderStep2 calls)
+let _openGroup = null;
+
+function buildRegionSelector(container) {
+  container.innerHTML = '';
+
+  // Row of region buttons
+  const row = document.createElement('div');
+  row.className = 'region-row';
+
+  SUGG_GROUPS.forEach((group, gi) => {
+    const btn = document.createElement('button');
+    btn.className = 'region-btn' + (_openGroup === gi ? ' region-btn-active' : '');
+    btn.textContent = group.label;
+    btn.onclick = () => {
+      _openGroup = (_openGroup === gi) ? null : gi;
+      buildRegionSelector(container); // rebuild in place
+    };
+    row.appendChild(btn);
+  });
+  container.appendChild(row);
+
+  // Show items of open group
+  if (_openGroup !== null) {
+    const group = SUGG_GROUPS[_openGroup];
+    const grid  = document.createElement('div');
+    grid.className = 'sugg-grid';
+    grid.style.marginTop = '8px';
+
+    group.items.forEach(s => {
+      const btn   = document.createElement('button');
+      btn.className = 'sugg-btn';
+      const sDist = S.user.lat ? haversine(S.user.lat,S.user.lon,s.lat,s.lon) : null;
+      const sAz   = S.user.lat ? bearing(S.user.lat,S.user.lon,s.lat,s.lon) : null;
+      btn.innerHTML =
+        `<div class="sugg-pre">${s.entity}</div>`+
+        `<div class="sugg-name">${s.name}</div>`+
+        `<div class="sugg-dist">${sDist?sDist.toLocaleString()+' km':s.grid}</div>`;
+      btn.onclick = () => {
+        _selTarget = {...s, distNum:sDist, azNum:sAz};
+        const dx = document.getElementById('s-dx');
+        const hint = document.getElementById('dx-hint');
+        if (dx) dx.value = s.entity;
+        if (hint) hint.textContent =
+          s.name+' · '+s.grid+(sDist?' · '+sDist.toLocaleString()+' km · '+sAz+'°':'');
+        grid.querySelectorAll('.sugg-btn').forEach(b=>b.classList.remove('sel'));
+        btn.classList.add('sel');
+      };
+      grid.appendChild(btn);
+    });
+    container.appendChild(grid);
+  }
+}
 let _selTarget = null, _setupStep = 1;
 
 let _quickCheck = false;
@@ -779,7 +833,7 @@ function renderStep2(el) {
     </div>
     <div class="field-grid">
       <div class="field"><label>Band</label>
-        <select id="s-band">${['40m','20m','17m','15m','10m','80m','30m','6m'].map(b=>`<option>${b}</option>`).join('')}</select>
+        <select id="s-band">${['160m','80m','60m','40m','30m','20m','17m','15m','12m','10m','6m'].map(b=>`<option>${b}</option>`).join('')}</select>
       </div>
       <div class="field"><label>Mode</label>
         <select id="s-mode">${['FT8','CW','SSB','FT4','MSK144'].map(m=>`<option>${m}</option>`).join('')}</select>
@@ -1101,11 +1155,17 @@ function saveLocation() {
 }
 
 // ── API test ──
-const apiSt={kp:{ok:null,val:null,err:null,ms:null},sfi:{ok:null,val:null,err:null,ms:null},scales:{ok:null,val:null,err:null,ms:null}};
+const apiSt={
+  kp:     {ok:null,val:null,err:null,ms:null},
+  sfi:    {ok:null,val:null,err:null,ms:null},
+  scales: {ok:null,val:null,err:null,ms:null},
+  dx:     {ok:null,val:null,err:null,ms:null},
+};
 const apiURLs={
-  kp:'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json',
-  sfi:'https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json',
-  scales:'https://services.swpc.noaa.gov/json/noaa-scales.json',
+  kp:     'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json',
+  sfi:    'https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json',
+  scales: 'https://services.swpc.noaa.gov/json/noaa-scales.json',
+  dx:     'https://dxwatch.com/dxsd1/s.php?s=0&r=5',
 };
 async function doTestAPI() {
   const btn=document.getElementById('api-test-btn');
@@ -1158,6 +1218,12 @@ async function doTestAPI() {
     renderAPIEndpoints();
   }
 
+  // Test DX cluster
+  await testOne('dx', apiURLs.dx, d => {
+    if (!Array.isArray(d) || !d.length) throw new Error('No spots returned');
+    return d.length; // return number of spots as value
+  });
+
   const anyOk = apiSt.kp.ok||apiSt.sfi.ok;
   if(anyOk) {
     if(apiSt.kp.ok)  S.prop.kp=apiSt.kp.val;
@@ -1179,7 +1245,7 @@ async function doTestAPI() {
 function renderAPIEndpoints() {
   const el=document.getElementById('api-endpoints');
   if(!el) return;
-  const labels={kp:'Kp index',sfi:'Solar Flux Index',scales:'Storm scales'};
+  const labels={kp:'Kp index',sfi:'Solar Flux Index',scales:'Storm scales',dx:'DX Cluster (dxwatch.com)'};
   el.innerHTML=Object.entries(apiSt).map(([k,st])=>{
     const icon=st.ok===true?'✅':st.ok===false?'❌':'○';
     const col=st.ok===true?'var(--good-tx)':st.ok===false?'var(--bad-tx)':'var(--tx2)';
@@ -1748,13 +1814,37 @@ function drawTerminator(map) {
     }
   }
 
-  // Draw night-side polygon (semi-transparent dark overlay)
-  const polygon = [...nightBot, ...[...nightTop].reverse()];
-  if (polygon.length > 4) {
-    L.polygon(polygon, {
+  // Build proper night polygon closing through the poles
+  // nightBot: [termLat, lon] for -180..180 when decl>0 (summer)
+  // nightTop: [90, lon] for the pole cap
+  let nightPoly = [];
+  if (decl > 0) {
+    // Northern summer: night around south pole
+    nightPoly = [
+      ...nightBot,
+      [90, 180], [90, -180],           // top-right → top-left (night wraps through north)
+      // Actually for northern summer, night is around south pole:
+    ];
+    // Rebuild correctly for northern summer
+    nightPoly = [
+      ...nightBot,                      // terminator bottom edge (south)
+      [-90, 180], [-90, -180],         // south pole corners
+      nightBot[0],                      // close
+    ];
+  } else {
+    // Northern winter: night around north pole
+    nightPoly = [
+      ...nightTop,                      // terminator top edge (north)
+      [90, 180], [90, -180],           // north pole corners
+      nightTop[0],                      // close
+    ];
+  }
+
+  if (nightPoly.length > 4) {
+    L.polygon(nightPoly, {
       color: 'none',
       fillColor: '#000033',
-      fillOpacity: 0.25,
+      fillOpacity: 0.30,
       smoothFactor: 1,
     }).addTo(map);
   }
@@ -1842,12 +1932,13 @@ async function fetchDXWatch() {
   const url = 'https://dxwatch.com/dxsd1/s.php?s=0&r=50';
   try {
     const r = await Promise.race([
-      fetch(url),
-      new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+      fetch(url, {mode:'cors'}),
+      new Promise((_,rej) => setTimeout(() => rej(new Error('Timeout after 8s')), 8000)),
     ]);
-    if (!r.ok) return null;
+    if (!r.ok) { console.warn('DXWatch HTTP',r.status); return null; }
     const d = await r.json();
-    if (!Array.isArray(d)) return null;
+    if (!Array.isArray(d)) { console.warn('DXWatch: not array',typeof d); return null; }
+    console.log('DXWatch: got',d.length,'spots');
     return d.map(s => ({
       dx:      (s.dx  || s.DX  || '').toUpperCase(),
       de:      (s.de  || s.DE  || '').toUpperCase(),
@@ -1933,9 +2024,11 @@ function renderDXPanel() {
     const status = _dxFetchedAt
       ? `<div style="font-size:12px;color:var(--tx3);padding:4px 0">
            No spots on watched bands (${[...watchedBands].join(', ')}) in last 30 min.
-           <br>Source: dxwatch.com / PSK Reporter
+           Check connectivity in Settings → Test API → DX Cluster.
          </div>`
-      : `<div style="font-size:12px;color:var(--tx3);padding:4px 0">⏳ Fetching DX spots…</div>`;
+      : `<div style="font-size:12px;color:var(--tx3);padding:4px 0">
+           ⏳ Fetching DX spots… (dxwatch.com)
+         </div>`;
     el.innerHTML = `<div style="font-weight:600;font-size:13px;margin-bottom:6px">📻 Live DX spots</div>${status}`;
     return;
   }
