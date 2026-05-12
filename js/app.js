@@ -1150,7 +1150,7 @@ const apiURLs={
   kp:     'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json',
   sfi:    'https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json',
   scales: 'https://services.swpc.noaa.gov/json/noaa-scales.json',
-  dx:     'https://dxwatch.com/dxsd1/s.php?s=0&r=5',
+  dx:     'https://pskreporter.info/cgi-bin/pskquery5.pl?encap=0&callback=test&statistics=1&flowStartSeconds=-300&fDXgrid=JO20&limit=1',
 };
 async function doTestAPI() {
   const btn=document.getElementById('api-test-btn');
@@ -1158,11 +1158,13 @@ async function doTestAPI() {
   if(btn) btn.textContent='⏳ Testing…';
   box.textContent='Testing endpoints…';
 
-  async function testOne(key,url,parse) {
+  async function testOne(key, url, parse) {
     const t0=Date.now();
     try {
       const r=await fetch(url);
-      const d=await r.json();
+      // Accept JSON or text (JSONP)
+      const ct = r.headers.get('content-type') || '';
+      const d  = ct.includes('json') ? await r.json() : await r.text();
       const v=parse(d);
       apiSt[key]={ok:true,val:v,err:null,ms:Date.now()-t0};
     } catch(e) {
@@ -1204,9 +1206,15 @@ async function doTestAPI() {
   }
 
   // Test DX cluster
-  await testOne('dx', apiURLs.dx, d => {
-    if (!Array.isArray(d) || !d.length) throw new Error('No spots returned');
-    return d.length; // return number of spots as value
+  await testOne('dx', apiURLs.dx + '&nocache='+Date.now(), raw => {
+    // PSK Reporter returns JSONP - parse the callback wrapper
+    if (typeof raw === 'string') {
+      const json = raw.replace(/^[a-zA-Z_]+\(|\)$/g,'');
+      const d = JSON.parse(json);
+      const n = d?.receptionReports?.length ?? d?.currentSpots ?? 0;
+      return n + ' spots';
+    }
+    return 'OK';
   });
 
   const anyOk = apiSt.kp.ok||apiSt.sfi.ok;
@@ -1231,8 +1239,18 @@ function renderAPIEndpoints() {
   const el=document.getElementById('api-endpoints');
   if(!el) return;
   // Order matters: NOAA first, DX second
-  const labels={kp:'Kp index',sfi:'Solar Flux Index',scales:'Storm scales (G-scale)',dx:'DX Cluster (dxwatch.com)'};
-  const order = ['kp','sfi','scales','dx'];
+  const labels={kp:'Kp index',sfi:'Solar Flux Index',dx:'DX Spots (PSK Reporter)'};
+  const order = ['kp','sfi','dx'];  // scales derived from Kp, no separate test
+  const kp = S.prop.kp;
+  const gScale = kp!=null ? (kp>=7?4:kp>=6?3:kp>=5?2:kp>=4?1:0) : null;
+  const scaleRow = `<div class="api-row" style="border-color:var(--good);background:var(--good-bg)">
+    <div class="api-row-top">
+      <span style="color:var(--good-tx)">✅ Storm scales (G-scale)${gScale!=null?' <strong>G'+gScale+'</strong>':''}</span>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--tx2)">derived from Kp · no separate fetch</span>
+    </div>
+    <div class="api-url">noaa-scales.json CORS-blocked on mobile — using Kp fallback</div>
+  </div>`;
+
   el.innerHTML=order.map(k=>{ const st=apiSt[k];
     const icon=st.ok===true?'✅':st.ok===false?'❌':'○';
     const col=st.ok===true?'var(--good-tx)':st.ok===false?'var(--bad-tx)':'var(--tx2)';
@@ -1868,8 +1886,13 @@ function callToPrefix(call) {
 }
 
 async function fetchDXSpots() {
-  // Try dxwatch.com first
-  const spots = await fetchDXWatch() || await fetchPSKReporter();
+  // PSK Reporter is primary (CORS-friendly JSONP)
+  // dxwatch.com as enrichment if PSK Reporter returns fewer spots
+  let spots = await fetchPSKReporter();
+  if (!spots || spots.length < 5) {
+    const dxw = await fetchDXWatch();
+    if (dxw) spots = [...(spots||[]), ...dxw].slice(0, 50);
+  }
   if (spots && spots.length) {
     _dxSpots     = spots;
     _dxFetchedAt = new Date();
@@ -1904,10 +1927,12 @@ async function fetchDXWatch() {
 
 async function fetchPSKReporter() {
   // PSK Reporter: spots heard by stations near the user
-  const grid = (S.user.grid || 'JO20').slice(0,4);
-  const url  = `https://pskreporter.info/cgi-bin/pskquery5.pl?encap=0&callback=x`
-             + `&statistics=0&noactive=1&rronly=1&flowStartSeconds=-3600`
-             + `&receiverCallsign=&fDXgrid=${grid}`;
+  // Get recent DX spots near user location
+  // Use a broader query: all bands, last 30 min, limit to ~200 spots
+  const grid = (S.user.grid || 'JO20').slice(0,4).toUpperCase();
+  const url  = `https://pskreporter.info/cgi-bin/pskquery5.pl?encap=0&callback=pskdata`
+             + `&statistics=0&noactive=1&flowStartSeconds=-1800`
+             + `&fDXgrid=${grid}&limit=200`;
   try {
     const r = await Promise.race([
       fetch(url),
@@ -1915,7 +1940,7 @@ async function fetchPSKReporter() {
     ]);
     if (!r.ok) return null;
     let txt = await r.text();
-    txt = txt.replace(/^x\(|\)$/g, '');
+    txt = txt.replace(/^pskdata\(|\)$/g, '').replace(/^[a-zA-Z_]+\(|\)$/g,'');
     const d = JSON.parse(txt);
     const reps = d?.receptionReports ?? [];
     return reps.map(s => ({
