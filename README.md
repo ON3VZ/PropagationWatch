@@ -5,7 +5,7 @@
 > *"Is it worth switching on the rig right now — and if not, when?"*
 
 **Live app:** [on3vz.github.io/PropagationWatch](https://on3vz.github.io/PropagationWatch)  
-**Developer:** ON3VZ · JO20ev · Hoboken (Antwerpen) · WLD/ON6WL · IC-7300 MkII
+**Developer:** ON3VZ · JO20ee · Hoboken (Antwerpen) · WLD/ON6WL · IC-7300 MkII
 
 ---
 
